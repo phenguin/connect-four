@@ -1,5 +1,7 @@
 use std::fmt;
+use std::mem::transmute;
 use std::convert::From;
+use std::marker::PhantomData;
 
 #[derive(Clone, Copy)]
 enum Color {
@@ -75,52 +77,110 @@ impl fmt::Display for Slot {
     }
 }
 
-struct Board {
+struct Board<T> {
     board: [[Slot; 4]; 4],
+    _phantom: PhantomData<T>,
+}
+impl<T> std::clone::Clone for Board<T> {
+    fn clone(&self) -> Board<T> {
+        Board {
+            board: self.board.clone(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
-impl Board {
-    fn new() -> Self {
-        // board[0] is the bottom row, board[3] is the top.
-        Board { board: [[Slot::new(); 4]; 4] }
+struct Dirty {}
+struct Clean {}
+
+struct ValidMove {
+    index: Index,
+    color: Color,
+    valid_for: Board<Dirty>,
+}
+
+impl ValidMove {
+    pub fn board(&self) -> &Board<Dirty> {
+        &self.valid_for
     }
 
-    fn try_move(&mut self, n: Index, c: Color) -> Option<Index> {
+    pub fn index(&self) -> Index {
+        self.index
+    }
+
+    pub fn color(&self) -> Color {
+        self.color
+    }
+
+    fn apply(self) -> (Board<Clean>, Index) {
         use Slot::*;
-        let n: usize = usize::from(n);
+        let mut res = self.valid_for;
+        let n: usize = usize::from(self.index);
         for i in 0..4 {
-            match self.board[i][n] {
+            match res.board[i][n] {
                 Full(_) => (),
                 Empty => {
-                    self.board[i][n] = Full(c);
-                    return Some(Index::from_usize(i).unwrap());
+                    res.board[i][n] = Full(self.color);
+                    return (res.cleaned(), Index::from_usize(i).unwrap());
                 }
             }
         }
-        return None;
+        panic!("This shouldn't happen for validated moves.");
+    }
+}
+
+impl Board<Clean> {
+    fn new() -> Self {
+        // board[0] is the bottom row, board[3] is the top.
+        Board {
+            board: [[Slot::new(); 4]; 4],
+            _phantom: PhantomData,
+        }
     }
 
-    fn try_moves<T>(&mut self, moves: T) -> Vec<Option<Index>>
+    fn verify_move(self: Board<Clean>, col: Index, color: Color) -> Option<ValidMove> {
+        // TODO : Is this fine?
+        if let Slot::Full(_) = self.board[3][usize::from(col)] {
+            return None;
+        }
+
+        Some(ValidMove {
+            index: col,
+            color: color,
+            valid_for: self.dirtied(),
+        })
+    }
+
+    fn dirtied(self) -> Board<Dirty> {
+        unsafe { transmute(self) }
+    }
+
+    fn try_move(&mut self, n: Index, c: Color) -> Option<Index> {
+        let x = self.clone().verify_move(n, c);
+        x.map(move |valid_move| {
+            let (new_board, row) = valid_move.apply();
+            *self = new_board;
+            row
+        })
+    }
+
+    fn try_moves<I>(&mut self, moves: I) -> Vec<Option<Index>>
     where
-        T: Iterator<Item = (Index, Color)>,
+        I: Iterator<Item = (Index, Color)>,
     {
         moves
             .map(move |(col, color)| self.try_move(col, color))
             .collect()
     }
+}
 
-    fn transposed(&self) -> Self {
-        let mut board = Board::new();
-        for i in 0..4 {
-            for j in 0..4 {
-                board.board[i][j] = self.board[j][i];
-            }
-        }
-        board
+impl Board<Dirty> {
+    fn cleaned(self) -> Board<Clean> {
+        unsafe { transmute(self) }
     }
 }
 
-impl fmt::Display for Board {
+impl<T> fmt::Display for Board<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "|----|")?;
         for row in self.board.iter().rev() {
@@ -132,10 +192,9 @@ impl fmt::Display for Board {
 
 fn main() {
     use Color::*;
-    use Slot::*;
     use Index::*;
     let test_moves = vec![(One, R), (One, B), (Three, R), (Two, B)];
-    let board = Board { board: [[Full(R); 4], [Empty; 4], [Empty; 4], [Empty; 4]] };
+    let board = Board::new();
     // println!("{}", board);
     println!("{}", board);
     let mut board = board;
