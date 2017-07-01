@@ -36,6 +36,14 @@ impl Color {
         }
     }
 
+    fn show(&self) -> &str {
+        use Color::*;
+        match *self {
+            R => "Red",
+            B => "Black",
+        }
+    }
+
     fn random() -> Color {
         use Color::*;
         if rand::random() {
@@ -458,7 +466,7 @@ fn test() {
 }
 
 fn get_human_move(board: &Board<Clean>, color: Color) -> usize {
-    println!("{}'s move! Here is the board:\n", color);
+    println!("{}'s move! Here is the board:\n", color.show());
     println!("{}", board);
 
     loop {
@@ -504,10 +512,7 @@ fn run_game() {
     let mut to_act = Color::random();
     println!(
         "{} goes first!",
-        match to_act {
-            R => "Red",
-            B => "Black",
-        }
+        to_act.show()
     );
 
     let mut board = Board::new();
@@ -526,7 +531,7 @@ fn run_game() {
     }
 
     let winner = board.winner().unwrap();
-    println!("Winner is: {}", winner);
+    println!("Winner is: {}", winner.show());
 }
 
 fn main() {
