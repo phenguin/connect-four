@@ -7,6 +7,10 @@ extern crate rand;
 extern crate rayon;
 
 use std::io;
+use rand::Rng;
+use std::hash::{Hash,Hasher};
+use std::collections::hash_map::DefaultHasher;
+use rand::XorShiftRng;
 use std::fmt;
 use std::mem::transmute;
 use std::marker::PhantomData;
@@ -15,9 +19,9 @@ use rayon::prelude::*;
 const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
-const SEARCH_DEPTH: usize = 8;
+const SEARCH_DEPTH: usize = 4;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
 enum Color {
     R,
     B,
@@ -41,7 +45,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Hash)]
 enum Slot {
     Empty,
     Full(Color),
@@ -76,6 +80,7 @@ impl fmt::Display for Slot {
     }
 }
 
+#[derive(Hash)]
 struct Board<T> {
     board: [[Slot; WIDTH]; HEIGHT],
     _phantom: PhantomData<T>,
@@ -89,9 +94,12 @@ impl<T> std::clone::Clone for Board<T> {
     }
 }
 
+#[derive(Hash)]
 struct Dirty {}
+#[derive(Hash)]
 struct Clean {}
 
+#[derive(Hash,Clone)]
 struct ValidMove {
     index: usize,
     color: Color,
@@ -262,7 +270,7 @@ impl Board<Clean> {
             .collect()
     }
 
-    fn minimax(&self, to_act: Color) -> (i8, usize) {
+    fn minimax(&self, to_act: Color) -> (i32, usize) {
         let node = Node {
             game: Game {
                 state: self.clone(),
@@ -310,19 +318,21 @@ impl<T> fmt::Display for Board<T> {
     }
 }
 
+#[derive(Hash,Clone)]
 struct Game {
     state: Board<Clean>,
     to_act: Color,
     ref_color: Color,
 }
 
+#[derive(Hash)]
 struct Node {
     game: Game,
     preceding_move: Option<usize>,
 }
 
 impl Node {
-    fn minimax(&self, depth: usize) -> (i8, usize) {
+    fn minimax(&self, depth: usize) -> (i32, usize) {
         let game = &self.game;
 
 
@@ -347,20 +357,56 @@ impl Node {
 
     }
 }
+
+fn calculate_hash<T: Hash>(t: &T) -> [u32; 4] {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    let x = s.finish();
+    let low: u32 = x as u32;
+    let high: u32 = (x >> 32) as u32;
+    [low, high, low, high]
+        
+}
+
 impl Game {
-    fn eval(&self) -> i8 {
+    fn eval(&self) -> i32 {
         if let Some(c) = self.state.winner() {
             if c == self.ref_color {
-                return 1;
+                return i32::max_value();
             } else {
-                return -1;
+                return i32::min_value();
             }
         } else {
-            0
+            self.monte_carlo(100) as i32
         }
     }
 
-    fn color_weight(&self) -> i8 {
+    fn random_outcome(&self) -> Option<Color> {
+        // let seed = calculate_hash(self);
+        let seed = rand::random::<[u32; 4]>();
+        let mut rng : XorShiftRng = rand::SeedableRng::from_seed(seed);
+        
+        let mut game = (*self).clone();
+        while !game.state.has_winner() {
+            let moves = game.state.possible_moves(game.to_act);
+            let next_move = rng.choose(moves.as_ref());
+            if next_move.is_none() { return None };
+            game = Game {
+                state: (*next_move.unwrap()).clone().apply().0,
+                to_act: game.to_act.flip(),
+                ref_color: game.ref_color,
+            }
+        }
+       game.state.winner()
+    }
+
+    fn monte_carlo(&self, trials: u32)  -> u32 {
+        (0..trials).flat_map(|_| {
+            self.random_outcome()
+        }).filter(|c| *c == self.ref_color).map(|_| 1).sum()
+    }
+
+    fn color_weight(&self) -> i32 {
         if self.to_act == self.ref_color { 1 } else { -1 }
     }
 
@@ -412,7 +458,7 @@ fn test() {
 }
 
 fn get_human_move(board: &Board<Clean>, color: Color) -> usize {
-    println!("Your move! Here is the board:\n");
+    println!("{}'s move! Here is the board:\n", color);
     println!("{}", board);
 
     loop {
@@ -444,7 +490,9 @@ fn get_human_move(board: &Board<Clean>, color: Color) -> usize {
 
 fn get_computer_move(board: &Board<Clean>, color: Color) -> usize {
     println!("Computer is thinking.....");
-    board.minimax(color).1
+    let (s, m) = board.minimax(color);
+    println!("score: {}", s);
+    m
 }
 
 fn run_game() {
@@ -468,7 +516,6 @@ fn run_game() {
         match to_act {
             R => {
                 let hmove = get_human_move(&cloned_board, R);
-                println!("{}", hmove);
                 board.try_move(hmove, R);
             }
             B => {
