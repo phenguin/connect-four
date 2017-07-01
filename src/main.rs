@@ -6,43 +6,13 @@ use std::mem::transmute;
 use std::convert::From;
 use std::marker::PhantomData;
 
+const HEIGHT: usize = 4;
+const WIDTH: usize = 7;
+
 #[derive(Clone, Copy)]
 enum Color {
     R,
     B,
-}
-
-#[derive(Clone, Copy)]
-enum Index {
-    One,
-    Two,
-    Three,
-    Four,
-}
-
-impl Index {
-    fn from_usize(n: usize) -> Option<Self> {
-        use Index::*;
-        match n {
-            0 => Some(One),
-            1 => Some(Two),
-            2 => Some(Three),
-            3 => Some(Four),
-            _ => None,
-        }
-    }
-}
-
-impl From<Index> for usize {
-    fn from(i: Index) -> Self {
-        use Index::*;
-        match i {
-            One => 0,
-            Two => 1,
-            Three => 2,
-            Four => 3,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -81,7 +51,7 @@ impl fmt::Display for Slot {
 }
 
 struct Board<T> {
-    board: [[Slot; 4]; 4],
+    board: [[Slot; WIDTH]; HEIGHT],
     _phantom: PhantomData<T>,
 }
 impl<T> std::clone::Clone for Board<T> {
@@ -97,7 +67,7 @@ struct Dirty {}
 struct Clean {}
 
 struct ValidMove {
-    index: Index,
+    index: usize,
     color: Color,
     valid_for: Board<Dirty>,
 }
@@ -107,7 +77,7 @@ impl ValidMove {
         &self.valid_for
     }
 
-    pub fn index(&self) -> Index {
+    pub fn index(&self) -> usize {
         self.index
     }
 
@@ -115,16 +85,16 @@ impl ValidMove {
         self.color
     }
 
-    fn apply(self) -> (Board<Clean>, Index) {
+    fn apply(self) -> (Board<Clean>, usize) {
         use Slot::*;
         let mut res = self.valid_for;
-        let n: usize = usize::from(self.index);
-        for i in 0..4 {
+        let n = self.index;
+        for i in 0..HEIGHT {
             match res.board[i][n] {
                 Full(_) => (),
                 Empty => {
                     res.board[i][n] = Full(self.color);
-                    return (res.cleaned(), Index::from_usize(i).unwrap());
+                    return (res.cleaned(), i);
                 }
             }
         }
@@ -136,14 +106,18 @@ impl Board<Clean> {
     fn new() -> Self {
         // board[0] is the bottom row, board[3] is the top.
         Board {
-            board: [[Slot::new(); 4]; 4],
+            board: [[Slot::new(); WIDTH]; HEIGHT],
             _phantom: PhantomData,
         }
     }
 
-    fn verify_move(self: Board<Clean>, col: Index, color: Color) -> Option<ValidMove> {
+    fn verify_move(self: Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
         // TODO : Is this fine?
         if let Slot::Full(_) = self.board[3][usize::from(col)] {
+            return None;
+        }
+
+        if col >= WIDTH {
             return None;
         }
 
@@ -158,7 +132,7 @@ impl Board<Clean> {
         unsafe { transmute(self) }
     }
 
-    fn try_move(&mut self, n: Index, c: Color) -> Option<Index> {
+    fn try_move(&mut self, n: usize, c: Color) -> Option<usize> {
         let x = self.clone().verify_move(n, c);
         x.map(move |valid_move| {
             let (new_board, row) = valid_move.apply();
@@ -167,9 +141,9 @@ impl Board<Clean> {
         })
     }
 
-    fn try_moves<I>(&mut self, moves: I) -> Vec<Option<Index>>
+    fn try_moves<I>(&mut self, moves: I) -> Vec<Option<usize>>
     where
-        I: Iterator<Item = (Index, Color)>,
+        I: Iterator<Item = (usize, Color)>,
     {
         moves
             .map(move |(col, color)| self.try_move(col, color))
@@ -185,18 +159,22 @@ impl Board<Dirty> {
 
 impl<T> fmt::Display for Board<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "|----|")?;
+        let dashes: String = (0..WIDTH).map(|_| "-").collect();
+        writeln!(f, "|{}|", dashes.as_str())?;
         for row in self.board.iter().rev() {
-            writeln!(f, "|{}{}{}{}|", row[0], row[1], row[2], row[3])?;
+            write!(f, "|")?;
+            for slot in row.iter() {
+                write!(f, "{}", slot)?;
+            }
+            writeln!(f, "|");
         }
-        write!(f, "|----|")
+        write!(f, "|{}|", dashes.as_str())
     }
 }
 
 fn main() {
     use Color::*;
-    use Index::*;
-    let test_moves = vec![(One, R), (One, B), (Three, R), (Two, B)];
+    let test_moves = vec![(0, R), (0, B), (2, R), (1, B)];
     let board = Board::new();
     // println!("{}", board);
     println!("{}", board);
