@@ -7,6 +7,9 @@
 extern crate rand;
 extern crate rayon;
 extern crate clap;
+extern crate cpuprofiler;
+
+use cpuprofiler::PROFILER;
 
 
 use Color::*;
@@ -676,7 +679,7 @@ impl<'a> Runner<'a> {
     }
 }
 
-fn main() {
+fn do_main() {
     let matches = App::new("Connect Four")
         .version("0.1.0")
         .about("Simple project to play with while learning rust")
@@ -700,4 +703,10 @@ fn main() {
     let trials = value_t!(matches.value_of("trials"), usize).unwrap_or_else(|e| e.exit());
     let mut pc = AIPlayer::new("IRobot", depth, trials);
     Runner::run(&mut human, &mut pc);
+}
+
+fn main() {
+    PROFILER.lock().unwrap().start("./my-prof2.profile");
+    println!("{:?}", Board::new().minimax(R, 6, 100));
+    PROFILER.lock().unwrap().stop();
 }
