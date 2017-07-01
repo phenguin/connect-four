@@ -1,21 +1,32 @@
 #![feature(plugin)]
 #![plugin(clippy)]
+#![allow(dead_code)]
 
 use std::fmt;
 use std::mem::transmute;
-use std::convert::From;
 use std::marker::PhantomData;
 
-const HEIGHT: usize = 4;
+const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
+const NEEDED: usize = 4;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Color {
     R,
     B,
 }
 
-#[derive(Clone, Copy)]
+impl Color {
+    fn flip(&self) -> Color {
+        use Color::*;
+        match *self {
+            R => B,
+            B => R,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum Slot {
     Empty,
     Full(Color),
@@ -57,7 +68,7 @@ struct Board<T> {
 impl<T> std::clone::Clone for Board<T> {
     fn clone(&self) -> Board<T> {
         Board {
-            board: self.board.clone(),
+            board: self.board,
             _phantom: PhantomData,
         }
     }
@@ -111,13 +122,91 @@ impl Board<Clean> {
         }
     }
 
+    fn winner(&self) -> Option<Color> {
+        if self.has_won(Color::R) {
+            Some(Color::R)
+        } else if self.has_won(Color::B) {
+            Some(Color::B)
+        } else {
+            None
+        }
+    }
+
+    fn possible_moves_for_color(&self, color: Color) -> Vec<ValidMove> {
+        let mut moves = vec![];
+        for j in 0..WIDTH {
+            if let Slot::Empty = self.get(HEIGHT - 1, j) {
+                moves.push(ValidMove {
+                    index: j,
+                    color: color,
+                    valid_for: self.clone().dirtied(),
+                })
+            }
+        }
+        moves
+    }
+
+    fn has_won(&self, color: Color) -> bool {
+        // horizontalCheck
+        let color = Slot::Full(color);
+
+        for j in 0..HEIGHT - NEEDED {
+            for i in 0..WIDTH {
+                if self.get(i, j) == color && self.get(i, j + 1) == color &&
+                    self.get(i, j + 2) == color && self.get(i, j + 3) == color
+                {
+                    return true;
+                }
+            }
+        }
+        // verticalCheck
+        for i in 0..WIDTH - (NEEDED - 1) {
+            for j in 0..HEIGHT {
+                if self.get(i, j) == color && self.get(i + 1, j) == color &&
+                    self.get(i + 2, j) == color && self.get(i + 3, j) == color
+                {
+                    return true;
+                }
+            }
+        }
+
+        // ascending diagonal check
+        for i in 3..WIDTH {
+            for j in 0..HEIGHT - (NEEDED - 1) {
+                if self.get(i, j) == color && self.get(i - 1, j + 1) == color &&
+                    self.get(i - 2, j + 2) == color &&
+                    self.get(i - 3, j + 3) == color
+                {
+                    return true;
+                }
+            }
+        }
+        // // descendingDiagonalCheck
+        for i in 3..WIDTH {
+            for j in 3..HEIGHT {
+                if self.get(i, j) == color && self.get(i - 1, j - 1) == color &&
+                    self.get(i - 2, j - 2) == color &&
+                    self.get(i - 3, j - 3) == color
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+
     fn verify_move(self: Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
         // TODO : Is this fine?
-        if let Slot::Full(_) = self.board[3][usize::from(col)] {
+        if let Slot::Full(_) = self.board[HEIGHT - 1][col] {
             return None;
         }
 
         if col >= WIDTH {
+            return None;
+        }
+
+        if self.winner().is_some() {
             return None;
         }
 
@@ -157,6 +246,16 @@ impl Board<Dirty> {
     }
 }
 
+impl<T> Board<T> {
+    fn get(&self, i: usize, j: usize) -> Slot {
+        self.board[i][j]
+    }
+
+    fn set(&mut self, i: usize, j: usize, c: Color) {
+        (*self).board[i][j] = Slot::Full(c);
+    }
+}
+
 impl<T> fmt::Display for Board<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let dashes: String = (0..WIDTH).map(|_| "-").collect();
@@ -166,7 +265,7 @@ impl<T> fmt::Display for Board<T> {
             for slot in row.iter() {
                 write!(f, "{}", slot)?;
             }
-            writeln!(f, "|");
+            writeln!(f, "|")?;
         }
         write!(f, "|{}|", dashes.as_str())
     }
