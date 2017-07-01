@@ -3,23 +3,26 @@
 #![feature(use_extern_macros)]
 #![plugin(clippy)]
 #![allow(dead_code)]
+
 extern crate rand;
 extern crate rayon;
 
-use std::io;
-use std::cmp::max;
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
+
+use Color::*;
+use Slot::*;
 use rand::{Rng, XorShiftRng};
-use std::fmt;
-use std::mem::transmute;
-use std::marker::PhantomData;
 use rayon::prelude::*;
+use std::cmp::max;
+use std::collections::hash_map::DefaultHasher;
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::io;
+use std::marker::PhantomData;
+use std::mem::transmute;
 
 const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
-const SEARCH_DEPTH: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]
 enum Color {
@@ -29,7 +32,6 @@ enum Color {
 
 impl Color {
     fn flip(&self) -> Color {
-        use Color::*;
         match *self {
             R => B,
             B => R,
@@ -37,15 +39,13 @@ impl Color {
     }
 
     fn show(&self) -> &str {
-        use Color::*;
         match *self {
             R => "X",
-            B => "O",
+            B => "@",
         }
     }
 
     fn random() -> Color {
-        use Color::*;
         if rand::random() {
             return R;
         }
@@ -71,14 +71,13 @@ impl fmt::Display for Color {
                "{}",
                match *self {
                    Color::R => "X",
-                   Color::B => "O",
+                   Color::B => "@",
                })
     }
 }
 
 impl fmt::Display for Slot {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Slot::*;
         match *self {
             Empty => write!(f, " "),
             Full(c) => write!(f, "{}", c),
@@ -132,7 +131,6 @@ impl ValidMove {
     }
 
     fn apply(self) -> (Board<Clean>, usize) {
-        use Slot::*;
         let mut res = self.valid_for;
         let n = self.index;
         for i in 0..HEIGHT {
@@ -150,7 +148,6 @@ impl ValidMove {
 
 impl<'gs> ValidMoveMut<'gs> {
     fn apply(self) -> (usize) {
-        use Slot::*;
         let b = self.valid_for;
         let n = self.index;
         for i in 0..HEIGHT {
@@ -313,13 +310,13 @@ impl Board<Clean> {
             .collect()
     }
 
-    fn minimax(&self, to_act: Color) -> (i32, usize) {
+    fn minimax(&self, to_act: Color, max_depth: usize) -> (i32, usize) {
         let game = Game {
             state: self.clone(),
             to_act: to_act,
             ref_color: to_act,
         };
-        let mut node = Node::new(game);
+        let mut node = Node::new(game, max_depth);
         node.negamax_ab(0, i32::min_value(), i32::max_value())
     }
 }
@@ -371,26 +368,28 @@ struct Node {
     game: Game,
     preceding_move: Option<usize>,
     rng: XorShiftRng,
+    max_depth: usize,
 }
 
 impl Node {
-    fn new_seeded(g: Game, seed: [u32; 4]) -> Self {
+    fn new_seeded(g: Game, seed: [u32; 4], max_depth: usize) -> Self {
         let rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
         Node {
             game: g,
             preceding_move: None,
             rng: rng,
+            max_depth: max_depth,
         }
     }
 
-    fn new(g: Game) -> Self {
+    fn new(g: Game, max_depth: usize) -> Self {
         let seed = rand::random::<[u32; 4]>();
-        Self::new_seeded(g, seed)
+        Self::new_seeded(g, seed, max_depth)
     }
 
     fn negamax(&mut self, depth: usize) -> (i32, usize) {
         let nexts = self.possibilities();
-        if depth > SEARCH_DEPTH || nexts.is_empty() {
+        if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
             return (self.heuristic() * self.game.color_weight(self.game.to_act),
                     self.preceding_move.unwrap());
@@ -411,7 +410,7 @@ impl Node {
 
 
         let nexts = self.possibilities();
-        if depth > SEARCH_DEPTH || nexts.is_empty() {
+        if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
             return (self.heuristic() * self.game.color_weight(self.game.to_act),
                     self.preceding_move.unwrap());
@@ -488,6 +487,7 @@ impl Node {
                         to_act: self.game.to_act.flip(),
                         ref_color: self.game.ref_color,
                     },
+                    max_depth: self.max_depth,
                 }
             })
             .collect()
@@ -514,34 +514,13 @@ impl Game {
     }
 }
 
-fn test() {
-    let board = Board::new();
-    // println!("{}", board);
-    let mut board = board;
-    let mut color = Color::random();
-    let (s, m) = board.minimax(color);
-    println!("move: {}, score: {}", m, s);
-    for _ in 1..20 {
-        if board.winner().is_some() {
-            break;
-        };
-        board.try_move(rand::random::<usize>() % WIDTH, color);
-        color = color.flip();
-    }
-    if let Some(winner) = board.winner() {
-        println!("Winner: {}", winner);
-    }
-
-    println!("{}", board);
-    let (s, m) = board.minimax(color);
-    println!("move: {}, score: {}", m, s);
-    // println!("{}", board.transposed());
-}
-
-
 trait Player {
     fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize;
     fn display_name(&self) -> &str;
+    fn player_type(&self) -> &str;
+    fn full_name(&self) -> String {
+        format!("{} ({})", self.display_name(), self.player_type())
+    }
 }
 
 struct HumanPlayer {
@@ -549,17 +528,20 @@ struct HumanPlayer {
 }
 
 impl HumanPlayer {
-    fn new(name: String) -> Self {
-        HumanPlayer {
-            name: name,
-        }
+    fn new(name: &str) -> Self {
+        HumanPlayer { name: String::from(name) }
     }
 }
 
 impl Player for HumanPlayer {
     fn display_name(&self) -> &str {
-        "You"
+        self.name.as_str()
     }
+
+    fn player_type(&self) -> &str {
+        "Human"
+    }
+
     fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize {
         println!("{}'s move.", color.show());
 
@@ -567,7 +549,9 @@ impl Player for HumanPlayer {
             println!("What is your move?");
             print!("Enter a number between {} and {}:", 1, WIDTH);
             let mut choice = String::new();
-            io::stdin().read_line(&mut choice).expect("Failed to read line... something is mad broke.");
+            io::stdin()
+                .read_line(&mut choice)
+                .expect("Failed to read line... something is mad broke.");
             println!("");
 
             let choice: usize = match choice.trim().parse() {
@@ -589,60 +573,120 @@ impl Player for HumanPlayer {
         }
     }
 }
-struct AIPlayer {}
+struct AIPlayer {
+    name: String,
+    search_depth: usize,
+}
 
 impl Player for AIPlayer {
     fn display_name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    fn player_type(&self) -> &str {
         "Computer"
     }
 
     fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize {
         println!("Computer is thinking.....");
-        let (s, m) = board.minimax(color);
+        let (s, m) = board.minimax(color, self.search_depth);
         println!("score: {}", s);
         m
     }
 }
 
 impl AIPlayer {
-    fn new() -> Self {
-        AIPlayer {}
+    fn new(name: &str, search_depth: usize) -> Self {
+        AIPlayer {
+            name: String::from(name),
+            search_depth: search_depth,
+        }
     }
 }
 
-fn run_game(p1: &mut Player, p2: &mut Player) {
-    use Color::*;
-    println!("CONNECT FOUR");
-    println!("Player 1, {}, is {}'s.", p1.display_name(), R.show());
-    println!("Player 2, {}, is {}'s.", p2.display_name(), B.show());
-    println!("Flipping to see who starts...");
+type Plr<'a> = &'a mut Player;
 
-    let mut to_act = Color::random();
-    println!("{} goes first!", to_act.show());
+struct Runner<'a> {
+    board: Board<Clean>,
+    to_act: Color,
+    players: (Plr<'a>, Plr<'a>),
+    winner: Option<Color>,
+}
 
-    let mut board = Board::new();
-    while !board.has_winner() {
-        let cloned_board = board.clone();
-        println!("{}", board);
-        match to_act {
-            R => {
-                let p1_move = (*p1).choose_move(&cloned_board, R);
-                board.try_move(p1_move, R);
-            }
-            B => {
-                let p2_move = (*p2).choose_move(&cloned_board, B);
-                board.try_move(p2_move, B);
-            }
-        }
-        to_act = to_act.flip();
+impl<'a> Runner<'a> {
+    fn new(p1: Plr<'a>, p2: Plr<'a>) -> Self {
+        Self::new_with_first_to_act(Color::random(), p1, p2)
     }
 
-    let winner = board.winner().unwrap();
-    println!("Winner is: {}", winner.show());
+    fn new_with_first_to_act(color: Color, p1: Plr<'a>, p2: Plr<'a>) -> Self {
+        Runner {
+            board: Board::new(),
+            to_act: color,
+            players: (p1, p2),
+            winner: None,
+        }
+    }
+
+    fn show_board(&self) {
+        println!();
+        println!("{}", self.board);
+    }
+    fn init(&mut self) {
+        println!("CONNECT FOUR");
+        println!("Player 1, {}, is {}'s.",
+                 self.players.0.full_name(),
+                 R.show());
+        println!("Player 2, {}, is {}'s.",
+                 self.players.1.full_name(),
+                 B.show());
+        println!("Flipping to see who starts...");
+
+        (*self).to_act = Color::random();
+        println!("{} goes first!", self.to_act.show());
+
+        (*self).board = Board::new();
+    }
+
+    fn check_winner(&mut self) -> bool {
+        (*self).winner = self.board.winner();
+        self.winner.is_some()
+    }
+
+    fn step(&mut self) {
+        let cloned_board = self.board.clone();
+        self.show_board();
+        match self.to_act {
+            R => {
+                let p1_move = (*self).players.0.choose_move(&cloned_board, R);
+                self.board.try_move(p1_move, R);
+            }
+            B => {
+                let p2_move = (*self).players.1.choose_move(&cloned_board, B);
+                self.board.try_move(p2_move, B);
+            }
+        }
+        (*self).to_act = self.to_act.flip();
+    }
+
+    fn game_loop(&mut self) {
+        while !self.check_winner() {
+            self.step()
+        }
+
+        let winner = self.winner.unwrap();
+        println!("Winner is: {}", winner.show());
+    }
+
+    fn run<'b>(p1: Plr<'b>, p2: Plr<'b>) -> Option<Color> {
+        let mut runner = Runner::new(p1, p2);
+        runner.init();
+        runner.game_loop();
+        runner.winner
+    }
 }
 
 fn main() {
-    let mut human = HumanPlayer::new(String::from("Justin"));
-    let mut pc = AIPlayer::new();
-    run_game(&mut human, &mut pc);
+    let mut human = HumanPlayer::new("Justin");
+    let mut pc = AIPlayer::new("IRobot", 4);
+    Runner::run(&mut human, &mut pc);
 }
