@@ -5,3 +5,5 @@ authors = ["Justin Cullen <justincullen@google.com>"]
 
 [dependencies]
 clippy = "*"
+rand = "*"
+rayon = "*"
