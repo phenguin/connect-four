@@ -1,3 +1,6 @@
+#![feature(plugin)]
+#![plugin(clippy)]
+
 use std::fmt;
 use std::mem::transmute;
 use std::convert::From;
