@@ -7,6 +7,7 @@ extern crate rand;
 extern crate rayon;
 
 use std::io;
+use std::cmp::max;
 use rand::Rng;
 use std::hash::{Hash,Hasher};
 use std::collections::hash_map::DefaultHasher;
@@ -19,7 +20,7 @@ use rayon::prelude::*;
 const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
-const SEARCH_DEPTH: usize = 4;
+const SEARCH_DEPTH: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]
 enum Color {
@@ -114,6 +115,12 @@ struct ValidMove {
     valid_for: Board<Dirty>,
 }
 
+struct ValidMoveMut<'gs> {
+    index: usize,
+    color: Color,
+    valid_for: &'gs mut Board<Clean>,
+}
+
 impl ValidMove {
     pub fn board(&self) -> &Board<Dirty> {
         &self.valid_for
@@ -144,6 +151,23 @@ impl ValidMove {
     }
 }
 
+impl <'gs> ValidMoveMut<'gs> {
+    fn apply(self) -> (usize) {
+        use Slot::*;
+        let b = self.valid_for;
+        let n = self.index;
+        for i in 0..HEIGHT {
+            match b.board[i][n] {
+                Full(_) => (),
+                Empty => {
+                    (*b).board[i][n] = Full(self.color);
+                    return i;
+                }
+            }
+        }
+        panic!("This shouldn't happen for validated moves.");
+    }
+}
 impl Board<Clean> {
     fn new() -> Self {
         // board[0] is the bottom row, board[3] is the top.
@@ -256,6 +280,26 @@ impl Board<Clean> {
         })
     }
 
+    fn verify_move_mut(&mut self, col: usize, color: Color) -> Option<ValidMoveMut> {
+        // TODO : Is this fine?
+        if let Slot::Full(_) = self.board[HEIGHT - 1][col] {
+            return None;
+        }
+
+        if col >= WIDTH {
+            return None;
+        }
+
+        if self.winner().is_some() {
+            return None;
+        }
+
+        Some(ValidMoveMut {
+            index: col,
+            color: color,
+            valid_for: self,
+        })
+    }
     fn dirtied(self) -> Board<Dirty> {
         unsafe { transmute(self) }
     }
@@ -266,6 +310,12 @@ impl Board<Clean> {
             let (new_board, row) = valid_move.apply();
             *self = new_board;
             row
+        })
+    }
+
+    fn try_move_mut(&mut self, n: usize, c: Color) -> Option<usize> {
+        self.verify_move_mut(n, c).map(|m| {
+            m.apply()
         })
     }
 
@@ -287,7 +337,7 @@ impl Board<Clean> {
             },
             preceding_move: None,
         };
-        node.minimax(0)
+        node.negamax_ab(0, i32::min_value(), i32::max_value())
     }
 }
 
@@ -340,7 +390,7 @@ struct Node {
 }
 
 impl Node {
-    fn minimax(&self, depth: usize) -> (i32, usize) {
+    fn negamax(&self, depth: usize) -> (i32, usize) {
         let game = &self.game;
 
 
@@ -356,13 +406,45 @@ impl Node {
         nexts
             .par_iter()
             .map(|node| {
-                let (s, m) = node.minimax(depth + 1);
+                let (s, m) = node.negamax(depth + 1);
                 (-s, m)
             })
             .max()
             .unwrap()
 
 
+    }
+    fn negamax_ab(&self, depth: usize, alpha: i32, beta: i32) -> (i32, usize) {
+        let game = &self.game;
+
+
+        let nexts = game.possibilities();
+        if depth > SEARCH_DEPTH || nexts.is_empty() {
+            assert!(!self.preceding_move.is_none());
+            return (
+                game.eval() * game.color_weight(),
+                self.preceding_move.unwrap(),
+            );
+        }
+
+        let mut best = i32::min_value();
+        let mut best_move = None;
+        let mut alpha = alpha;
+        for node in nexts {
+            let (s, m) = node.negamax_ab(depth + 1, -beta, -alpha);
+            let s = -s;
+            if s >= best {
+                best = s;
+                best_move = Some(m);
+            }
+
+            alpha = max(alpha, best);
+            if alpha >= beta {
+                break
+            }
+        }
+
+        (best, best_move.unwrap())
     }
 }
 
@@ -396,14 +478,12 @@ impl Game {
         
         let mut game = (*self).clone();
         while !game.state.has_winner() {
-            let moves = game.state.possible_moves(game.to_act);
-            let next_move = rng.choose(moves.as_ref());
+            let moves : Vec<usize> = game.state.possible_moves(game.to_act).into_iter().map(|m| m.index()).collect();
+            let next_move : Option<&usize> = rng.choose(moves.as_ref());
             if next_move.is_none() { return None };
-            game = Game {
-                state: (*next_move.unwrap()).clone().apply().0,
-                to_act: game.to_act.flip(),
-                ref_color: game.ref_color,
-            }
+            let index = *next_move.unwrap();
+            game.state.try_move_mut(index, game.to_act);
+            game.to_act = game.to_act.flip();
         }
        game.state.winner()
     }
