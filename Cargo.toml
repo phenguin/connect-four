@@ -1,9 +1,10 @@
 [package]
-name = "rust"
+name = "connect-four"
 version = "0.1.0"
-authors = ["Justin Cullen <justincullen@google.com>"]
+authors = ["Justin Cullen <jcullen@alum.mit.edu>"]
 
 [dependencies]
 clippy = "*"
+clap = "*"
 rand = "*"
 rayon = "*"
