@@ -70,14 +70,12 @@ impl Slot {
 
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match *self {
-                Color::R => "X",
-                Color::B => "@",
-            }
-        )
+        write!(f,
+               "{}",
+               match *self {
+                   Color::R => "X",
+                   Color::B => "@",
+               })
     }
 }
 
@@ -217,8 +215,7 @@ impl Board<Clean> {
         for j in 0..HEIGHT - (NEEDED - 1) {
             for i in 0..WIDTH {
                 if get(i, j) == color && get(i, j + 1) == color && get(i, j + 2) == color &&
-                    get(i, j + 3) == color
-                {
+                   get(i, j + 3) == color {
                     return true;
                 }
             }
@@ -227,8 +224,7 @@ impl Board<Clean> {
         for i in 0..WIDTH - (NEEDED - 1) {
             for j in 0..HEIGHT {
                 if get(i, j) == color && get(i + 1, j) == color && get(i + 2, j) == color &&
-                    get(i + 3, j) == color
-                {
+                   get(i + 3, j) == color {
                     return true;
                 }
             }
@@ -238,8 +234,7 @@ impl Board<Clean> {
         for i in 3..WIDTH {
             for j in 0..HEIGHT - (NEEDED - 1) {
                 if get(i, j) == color && get(i - 1, j + 1) == color &&
-                    get(i - 2, j + 2) == color && get(i - 3, j + 3) == color
-                {
+                   get(i - 2, j + 2) == color && get(i - 3, j + 3) == color {
                     return true;
                 }
             }
@@ -248,8 +243,7 @@ impl Board<Clean> {
         for i in 3..WIDTH {
             for j in 3..HEIGHT {
                 if get(i, j) == color && get(i - 1, j - 1) == color &&
-                    get(i - 2, j - 2) == color && get(i - 3, j - 3) == color
-                {
+                   get(i - 2, j - 2) == color && get(i - 3, j - 3) == color {
                     return true;
                 }
             }
@@ -257,17 +251,23 @@ impl Board<Clean> {
         false
     }
 
-
-    fn verify_move(self: Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
+    fn move_valid(&self, col: usize) -> bool {
         // TODO : Is this fine?
         if let Slot::Full(_) = self.board[HEIGHT - 1][col] {
-            return None;
+            return false;
         }
 
         if col >= WIDTH {
-            return None;
+            return false;
         }
 
+        true
+    }
+
+    fn verify_move(self: Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
+        if !self.move_valid(col) {
+            return None;
+        }
         if self.winner().is_some() {
             return None;
         }
@@ -280,12 +280,7 @@ impl Board<Clean> {
     }
 
     fn verify_move_mut(&mut self, col: usize, color: Color) -> Option<ValidMoveMut> {
-        // TODO : Is this fine?
-        if let Slot::Full(_) = self.board[HEIGHT - 1][col] {
-            return None;
-        }
-
-        if col >= WIDTH {
+        if !self.move_valid(col) {
             return None;
         }
 
@@ -295,6 +290,7 @@ impl Board<Clean> {
             valid_for: self,
         })
     }
+
     fn dirtied(self) -> Board<Dirty> {
         unsafe { transmute(self) }
     }
@@ -313,11 +309,9 @@ impl Board<Clean> {
     }
 
     fn try_moves<I>(&mut self, moves: I) -> Vec<Option<usize>>
-    where
-        I: Iterator<Item = (usize, Color)>,
+        where I: Iterator<Item = (usize, Color)>
     {
-        moves
-            .map(move |(col, color)| self.try_move(col, color))
+        moves.map(move |(col, color)| self.try_move(col, color))
             .collect()
     }
 
@@ -402,14 +396,11 @@ impl Node {
         let nexts = self.possibilities();
         if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
-            return (
-                self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                self.preceding_move.unwrap(),
-            );
+            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
+                    self.preceding_move.unwrap());
         }
 
-        nexts
-            .into_par_iter()
+        nexts.into_par_iter()
             .map(|mut node| {
                 let (s, m) = node.negamax(trials, depth + 1);
                 (-s, m)
@@ -426,10 +417,8 @@ impl Node {
         let nexts = self.possibilities();
         if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
-            return (
-                self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                self.preceding_move.unwrap(),
-            );
+            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
+                    self.preceding_move.unwrap());
         }
 
         let mut best = i32::min_value();
@@ -452,29 +441,38 @@ impl Node {
         (best, best_move.unwrap())
     }
 
-    fn random_outcome(&mut self) -> Option<Color> {
+    fn random_outcome(&mut self, c: Color) -> Option<Color> {
         let mut game = (*self).game.clone();
-        while !game.state.has_winner() {
-            let moves: Vec<usize> = game.state
-                .possible_moves(game.to_act)
-                .into_iter()
-                .map(|m| m.index())
-                .collect();
-            let next_move: Option<&usize> = self.rng.choose(moves.as_ref());
-            if next_move.is_none() {
+        let mut game_over: bool = game.state.has_winner();
+        while !game_over {
+            let mut moves = [0, WIDTH - 1];
+            self.rng.shuffle(&mut moves);
+            let mut found_legal_move = false;
+            for &i in &moves {
+                match game.state.try_move_mut(i, c) {
+                    None => continue,
+                    Some(_) => {
+                        found_legal_move = true;
+                        break;
+                    }
+                };
+            }
+
+            if !found_legal_move {
                 return None;
-            };
-            let index = *next_move.unwrap();
-            game.state.try_move_mut(index, game.to_act);
+            }
+
             game.to_act = game.to_act.flip();
+            game_over = game.state.has_winner();
         }
         game.state.winner()
     }
 
     fn monte_carlo(&mut self, trials: u32) -> u32 {
         let ref_color = self.game.ref_color;
+        let color = self.game.to_act;
         (0..trials)
-            .flat_map(|_| self.random_outcome())
+            .flat_map(|_| self.random_outcome(color))
             .filter(move |c| *c == ref_color)
             .map(|_| 1)
             .sum()
@@ -494,8 +492,7 @@ impl Node {
 
     fn possibilities(&self) -> Vec<Node> {
         let moves = self.game.state.possible_moves(self.game.to_act);
-        moves
-            .into_iter()
+        moves.into_iter()
             .map(move |m| {
                 Node {
                     rng: self.rng.clone(),
@@ -558,9 +555,9 @@ impl Player for HumanPlayer {
             println!("What is your move?");
             print!("Enter a number between {} and {}:", 1, WIDTH);
             let mut choice = String::new();
-            io::stdin().read_line(&mut choice).expect(
-                "Failed to read line... something is mad broke.",
-            );
+            io::stdin()
+                .read_line(&mut choice)
+                .expect("Failed to read line... something is mad broke.");
             println!("");
 
             let choice: usize = match choice.trim().parse() {
@@ -644,16 +641,12 @@ impl<'a> Runner<'a> {
     }
     fn init(&mut self) {
         println!("CONNECT FOUR");
-        println!(
-            "Player 1, {}, is {}'s.",
-            self.players.0.full_name(),
-            R.show()
-        );
-        println!(
-            "Player 2, {}, is {}'s.",
-            self.players.1.full_name(),
-            B.show()
-        );
+        println!("Player 1, {}, is {}'s.",
+                 self.players.0.full_name(),
+                 R.show());
+        println!("Player 2, {}, is {}'s.",
+                 self.players.1.full_name(),
+                 B.show());
         println!("Flipping to see who starts...");
 
         (*self).to_act = Color::random();
@@ -704,25 +697,19 @@ fn do_main() {
     let matches = App::new("Connect Four")
         .version("0.1.0")
         .about("Simple project to play with while learning rust")
-        .arg(
-            Arg::with_name("depth")
-                .short("d")
-                .value_name("UINT")
-                .long("search_depth")
-                .help(
-                    "Specifies how many game tree levels the AI will search before trying \
-                   heuristics.",
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("trials")
-                .short("t")
-                .value_name("UINT")
-                .long("monte_carlo_trials")
-                .help("How many monte carlo trials to run for the heuristic.")
-                .takes_value(true),
-        )
+        .arg(Arg::with_name("depth")
+            .short("d")
+            .value_name("UINT")
+            .long("search_depth")
+            .help("Specifies how many game tree levels the AI will search before trying \
+                   heuristics.")
+            .takes_value(true))
+        .arg(Arg::with_name("trials")
+            .short("t")
+            .value_name("UINT")
+            .long("monte_carlo_trials")
+            .help("How many monte carlo trials to run for the heuristic.")
+            .takes_value(true))
         .get_matches();
 
     let mut human = HumanPlayer::new("Justin");
