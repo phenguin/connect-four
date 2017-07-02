@@ -279,10 +279,6 @@ impl Board<Clean> {
             return None;
         }
 
-        if self.winner().is_some() {
-            return None;
-        }
-
         Some(ValidMoveMut {
             index: col,
             color: color,
