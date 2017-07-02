@@ -18,6 +18,7 @@ use clap::{Arg, App, value_t};
 use rand::{Rng, XorShiftRng};
 use rayon::prelude::*;
 use std::cmp::max;
+use std::default::Default;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
@@ -371,19 +372,56 @@ struct Game {
 #[derive(Clone)]
 struct Node {
     game: Game,
+    attrs: NodeInfo,
+}
+
+#[derive(Clone)]
+struct NodeInfo {
     preceding_move: Option<usize>,
     rng: XorShiftRng,
     max_depth: usize,
+    index_alloc: [usize; WIDTH],
 }
 
-impl Node {
-    fn new_seeded(g: Game, seed: [u32; 4], max_depth: usize) -> Self {
+impl Default for NodeInfo {
+    fn default() -> Self {
+        let seed = rand::random::<[u32; 4]>();
+        Self::new_seeded(seed, 1)
+    }
+}
+
+impl NodeInfo {
+    fn new_seeded(seed: [u32; 4], max_depth: usize) -> Self {
         let rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
-        Node {
-            game: g,
+        let mut indices = [0; WIDTH];
+
+        for i in 0..WIDTH {
+            indices[i] = i;
+        }
+
+        NodeInfo {
             preceding_move: None,
             rng: rng,
             max_depth: max_depth,
+            index_alloc: indices,
+        }
+    }
+
+    fn shuffle_indices(&mut self) {
+        // TODO(justincullen): Fix this
+        let mut indices = self.index_alloc;
+        self.rng.shuffle(&mut indices);
+        self.index_alloc = indices;
+    }
+}
+
+
+
+impl Node {
+    fn new_seeded(g: Game, seed: [u32; 4], max_depth: usize) -> Self {
+        Node {
+            game: g,
+            attrs: NodeInfo::new_seeded(seed, max_depth),
         }
     }
 
@@ -392,12 +430,24 @@ impl Node {
         Self::new_seeded(g, seed, max_depth)
     }
 
+    fn max_depth(&self) -> usize {
+        self.attrs.max_depth
+    }
+
+    fn rng(&mut self) -> &mut XorShiftRng {
+        &mut self.attrs.rng
+    }
+
+    fn preceding_move(&self) -> Option<usize> {
+        self.attrs.preceding_move
+    }
+
     fn negamax(&mut self, trials: usize, depth: usize) -> (i32, usize) {
         let nexts = self.possibilities();
-        if depth > self.max_depth || nexts.is_empty() {
-            assert!(!self.preceding_move.is_none());
+        if depth > self.max_depth() || nexts.is_empty() {
+            assert!(!self.preceding_move().is_none());
             return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move.unwrap());
+                    self.preceding_move().unwrap());
         }
 
         nexts.into_par_iter()
@@ -407,18 +457,16 @@ impl Node {
             })
             .max()
             .unwrap()
-
-
     }
 
     fn negamax_ab(&mut self, depth: usize, trials: usize, alpha: i32, beta: i32) -> (i32, usize) {
 
 
         let nexts = self.possibilities();
-        if depth > self.max_depth || nexts.is_empty() {
-            assert!(!self.preceding_move.is_none());
+        if depth > self.max_depth() || nexts.is_empty() {
+            assert!(!self.preceding_move().is_none());
             return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move.unwrap());
+                    self.preceding_move().unwrap());
         }
 
         let mut best = i32::min_value();
@@ -445,10 +493,9 @@ impl Node {
         let mut game = (*self).game.clone();
         let mut game_over: bool = game.state.has_winner();
         while !game_over {
-            let mut moves = [0, WIDTH - 1];
-            self.rng.shuffle(&mut moves);
+            self.attrs.shuffle_indices();
             let mut found_legal_move = false;
-            for &i in &moves {
+            for &i in &self.attrs.index_alloc {
                 match game.state.try_move_mut(i, c) {
                     None => continue,
                     Some(_) => {
@@ -495,14 +542,12 @@ impl Node {
         moves.into_iter()
             .map(move |m| {
                 Node {
-                    rng: self.rng.clone(),
-                    preceding_move: Some(m.index()),
                     game: Game {
                         state: m.apply().0,
                         to_act: self.game.to_act.flip(),
                         ref_color: self.game.ref_color,
                     },
-                    max_depth: self.max_depth,
+                    attrs: self.attrs.clone(),
                 }
             })
             .collect()
