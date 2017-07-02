@@ -70,12 +70,14 @@ impl Slot {
 
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "{}",
-               match *self {
-                   Color::R => "X",
-                   Color::B => "@",
-               })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Color::R => "X",
+                Color::B => "@",
+            }
+        )
     }
 }
 
@@ -91,12 +93,14 @@ impl fmt::Display for Slot {
 #[derive(Hash)]
 struct Board<T> {
     board: [[Slot; WIDTH]; HEIGHT],
+    winner: Option<Color>,
     _phantom: PhantomData<T>,
 }
 impl<T> std::clone::Clone for Board<T> {
     fn clone(&self) -> Board<T> {
         Board {
             board: self.board,
+            winner: self.winner,
             _phantom: PhantomData,
         }
     }
@@ -107,7 +111,7 @@ struct Dirty {}
 #[derive(Hash)]
 struct Clean {}
 
-#[derive(Hash,Clone)]
+#[derive(Hash, Clone)]
 struct ValidMove {
     index: usize,
     color: Color,
@@ -141,7 +145,11 @@ impl ValidMove {
                 Full(_) => (),
                 Empty => {
                     res.board[i][n] = Full(self.color);
-                    return (res.cleaned(), i);
+                    let mut res = res.cleaned();
+                    if res.has_won(self.color) {
+                        res.winner = Some(self.color);
+                    }
+                    return (res, i);
                 }
             }
         }
@@ -158,6 +166,9 @@ impl<'gs> ValidMoveMut<'gs> {
                 Full(_) => (),
                 Empty => {
                     (*b).board[i][n] = Full(self.color);
+                    if b.has_won(self.color) {
+                        (*b).winner = Some(self.color);
+                    }
                     return i;
                 }
             }
@@ -170,18 +181,13 @@ impl Board<Clean> {
         // board[0] is the bottom row, board[3] is the top.
         Board {
             board: [[Slot::new(); WIDTH]; HEIGHT],
+            winner: None,
             _phantom: PhantomData,
         }
     }
 
     fn winner(&self) -> Option<Color> {
-        if self.has_won(Color::R) {
-            Some(Color::R)
-        } else if self.has_won(Color::B) {
-            Some(Color::B)
-        } else {
-            None
-        }
+        self.winner
     }
 
     fn has_winner(&self) -> bool {
@@ -211,7 +217,8 @@ impl Board<Clean> {
         for j in 0..HEIGHT - (NEEDED - 1) {
             for i in 0..WIDTH {
                 if get(i, j) == color && get(i, j + 1) == color && get(i, j + 2) == color &&
-                   get(i, j + 3) == color {
+                    get(i, j + 3) == color
+                {
                     return true;
                 }
             }
@@ -220,7 +227,8 @@ impl Board<Clean> {
         for i in 0..WIDTH - (NEEDED - 1) {
             for j in 0..HEIGHT {
                 if get(i, j) == color && get(i + 1, j) == color && get(i + 2, j) == color &&
-                   get(i + 3, j) == color {
+                    get(i + 3, j) == color
+                {
                     return true;
                 }
             }
@@ -230,7 +238,8 @@ impl Board<Clean> {
         for i in 3..WIDTH {
             for j in 0..HEIGHT - (NEEDED - 1) {
                 if get(i, j) == color && get(i - 1, j + 1) == color &&
-                   get(i - 2, j + 2) == color && get(i - 3, j + 3) == color {
+                    get(i - 2, j + 2) == color && get(i - 3, j + 3) == color
+                {
                     return true;
                 }
             }
@@ -239,7 +248,8 @@ impl Board<Clean> {
         for i in 3..WIDTH {
             for j in 3..HEIGHT {
                 if get(i, j) == color && get(i - 1, j - 1) == color &&
-                   get(i - 2, j - 2) == color && get(i - 3, j - 3) == color {
+                    get(i - 2, j - 2) == color && get(i - 3, j - 3) == color
+                {
                     return true;
                 }
             }
@@ -303,9 +313,11 @@ impl Board<Clean> {
     }
 
     fn try_moves<I>(&mut self, moves: I) -> Vec<Option<usize>>
-        where I: Iterator<Item = (usize, Color)>
+    where
+        I: Iterator<Item = (usize, Color)>,
     {
-        moves.map(move |(col, color)| self.try_move(col, color))
+        moves
+            .map(move |(col, color)| self.try_move(col, color))
             .collect()
     }
 
@@ -355,7 +367,7 @@ impl<T> fmt::Display for Board<T> {
     }
 }
 
-#[derive(Hash,Clone)]
+#[derive(Hash, Clone)]
 struct Game {
     state: Board<Clean>,
     to_act: Color,
@@ -390,11 +402,14 @@ impl Node {
         let nexts = self.possibilities();
         if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move.unwrap());
+            return (
+                self.heuristic(trials) * self.game.color_weight(self.game.to_act),
+                self.preceding_move.unwrap(),
+            );
         }
 
-        nexts.into_par_iter()
+        nexts
+            .into_par_iter()
             .map(|mut node| {
                 let (s, m) = node.negamax(trials, depth + 1);
                 (-s, m)
@@ -411,8 +426,10 @@ impl Node {
         let nexts = self.possibilities();
         if depth > self.max_depth || nexts.is_empty() {
             assert!(!self.preceding_move.is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move.unwrap());
+            return (
+                self.heuristic(trials) * self.game.color_weight(self.game.to_act),
+                self.preceding_move.unwrap(),
+            );
         }
 
         let mut best = i32::min_value();
@@ -438,8 +455,11 @@ impl Node {
     fn random_outcome(&mut self) -> Option<Color> {
         let mut game = (*self).game.clone();
         while !game.state.has_winner() {
-            let moves: Vec<usize> =
-                game.state.possible_moves(game.to_act).into_iter().map(|m| m.index()).collect();
+            let moves: Vec<usize> = game.state
+                .possible_moves(game.to_act)
+                .into_iter()
+                .map(|m| m.index())
+                .collect();
             let next_move: Option<&usize> = self.rng.choose(moves.as_ref());
             if next_move.is_none() {
                 return None;
@@ -474,7 +494,8 @@ impl Node {
 
     fn possibilities(&self) -> Vec<Node> {
         let moves = self.game.state.possible_moves(self.game.to_act);
-        moves.into_iter()
+        moves
+            .into_iter()
             .map(move |m| {
                 Node {
                     rng: self.rng.clone(),
@@ -537,9 +558,9 @@ impl Player for HumanPlayer {
             println!("What is your move?");
             print!("Enter a number between {} and {}:", 1, WIDTH);
             let mut choice = String::new();
-            io::stdin()
-                .read_line(&mut choice)
-                .expect("Failed to read line... something is mad broke.");
+            io::stdin().read_line(&mut choice).expect(
+                "Failed to read line... something is mad broke.",
+            );
             println!("");
 
             let choice: usize = match choice.trim().parse() {
@@ -623,12 +644,16 @@ impl<'a> Runner<'a> {
     }
     fn init(&mut self) {
         println!("CONNECT FOUR");
-        println!("Player 1, {}, is {}'s.",
-                 self.players.0.full_name(),
-                 R.show());
-        println!("Player 2, {}, is {}'s.",
-                 self.players.1.full_name(),
-                 B.show());
+        println!(
+            "Player 1, {}, is {}'s.",
+            self.players.0.full_name(),
+            R.show()
+        );
+        println!(
+            "Player 2, {}, is {}'s.",
+            self.players.1.full_name(),
+            B.show()
+        );
         println!("Flipping to see who starts...");
 
         (*self).to_act = Color::random();
@@ -679,19 +704,25 @@ fn do_main() {
     let matches = App::new("Connect Four")
         .version("0.1.0")
         .about("Simple project to play with while learning rust")
-        .arg(Arg::with_name("depth")
-            .short("d")
-            .value_name("UINT")
-            .long("search_depth")
-            .help("Specifies how many game tree levels the AI will search before trying \
-                   heuristics.")
-            .takes_value(true))
-        .arg(Arg::with_name("trials")
-            .short("t")
-            .value_name("UINT")
-            .long("monte_carlo_trials")
-            .help("How many monte carlo trials to run for the heuristic.")
-            .takes_value(true))
+        .arg(
+            Arg::with_name("depth")
+                .short("d")
+                .value_name("UINT")
+                .long("search_depth")
+                .help(
+                    "Specifies how many game tree levels the AI will search before trying \
+                   heuristics.",
+                )
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("trials")
+                .short("t")
+                .value_name("UINT")
+                .long("monte_carlo_trials")
+                .help("How many monte carlo trials to run for the heuristic.")
+                .takes_value(true),
+        )
         .get_matches();
 
     let mut human = HumanPlayer::new("Justin");

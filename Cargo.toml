@@ -9,3 +9,6 @@ clap = "*"
 rand = "*"
 rayon = "*"
 cpuprofiler = "*"
+
+[profile.release]
+debug = true
