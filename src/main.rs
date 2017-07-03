@@ -445,11 +445,10 @@ impl Node {
     fn negamax(&mut self, trials: usize, depth: usize) -> (i32, usize) {
         let nexts = self.possibilities();
         if depth > self.max_depth() || nexts.is_empty() {
-            assert!(!self.preceding_move().is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move().unwrap());
+            let mv = self.preceding_move();
+            assert!(!mv.is_none());
+            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act), mv.unwrap());
         }
-
         nexts.into_par_iter()
             .map(|mut node| {
                 let (s, m) = node.negamax(trials, depth + 1);
@@ -464,9 +463,9 @@ impl Node {
 
         let nexts = self.possibilities();
         if depth > self.max_depth() || nexts.is_empty() {
-            assert!(!self.preceding_move().is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act),
-                    self.preceding_move().unwrap());
+            let mv = self.preceding_move();
+            assert!(!mv.is_none());
+            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act), mv.unwrap());
         }
 
         let mut best = i32::min_value();
@@ -541,13 +540,15 @@ impl Node {
         let moves = self.game.state.possible_moves(self.game.to_act);
         moves.into_iter()
             .map(move |m| {
+                let mut new_attrs = self.attrs.clone();
+                new_attrs.preceding_move = Some(m.index());
                 Node {
                     game: Game {
                         state: m.apply().0,
                         to_act: self.game.to_act.flip(),
                         ref_color: self.game.ref_color,
                     },
-                    attrs: self.attrs.clone(),
+                    attrs: new_attrs,
                 }
             })
             .collect()
