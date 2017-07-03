@@ -490,12 +490,13 @@ impl Node {
 
     fn random_outcome(&mut self, c: Color) -> Option<Color> {
         let mut game = (*self).game.clone();
+        game.to_act = c;
         let mut game_over: bool = game.state.has_winner();
         while !game_over {
             self.attrs.shuffle_indices();
             let mut found_legal_move = false;
             for &i in &self.attrs.index_alloc {
-                match game.state.try_move_mut(i, c) {
+                match game.state.try_move_mut(i, game.to_act) {
                     None => continue,
                     Some(_) => {
                         found_legal_move = true;
