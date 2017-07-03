@@ -17,7 +17,7 @@ use Slot::*;
 use clap::{Arg, App, value_t};
 use rand::{Rng, XorShiftRng};
 use rayon::prelude::*;
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::default::Default;
 use std::fmt;
 use std::io;
@@ -28,7 +28,7 @@ const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+#[derive(Clone, Copy, PartialEq, Hash, Debug)]
 enum Color {
     R,
     B,
@@ -57,7 +57,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Hash)]
+#[derive(Clone, Copy, PartialEq, Hash, Debug)]
 enum Slot {
     Empty,
     Full(Color),
@@ -89,7 +89,7 @@ impl fmt::Display for Slot {
     }
 }
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 struct Board<T> {
     board: [[Slot; WIDTH]; HEIGHT],
     winner: Option<Color>,
@@ -105,9 +105,9 @@ impl<T> std::clone::Clone for Board<T> {
     }
 }
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 struct Dirty {}
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 struct Clean {}
 
 #[derive(Hash, Clone)]
@@ -195,6 +195,10 @@ impl Board<Clean> {
 
     fn possible_moves(&self, color: Color) -> Vec<ValidMove> {
         let mut moves = vec![];
+
+        if self.has_winner() {
+            return moves;
+        }
 
         for j in 0..WIDTH {
             if let Slot::Empty = self.get(HEIGHT - 1, j) {
@@ -316,14 +320,14 @@ impl Board<Clean> {
             .collect()
     }
 
-    fn minimax(&self, to_act: Color, max_depth: usize, trials: usize) -> (i32, usize) {
+    fn minimax(&self, to_act: Color, max_depth: usize, trials: usize) -> (i32, Option<usize>) {
         let game = Game {
             state: self.clone(),
             to_act: to_act,
             ref_color: to_act,
         };
         let mut node = Node::new(game, max_depth);
-        node.negamax_ab(0, trials, -(trials as i32), trials as i32)
+        node.negamax_ab(trials)
     }
 }
 
@@ -362,11 +366,18 @@ impl<T> fmt::Display for Board<T> {
     }
 }
 
-#[derive(Hash, Clone)]
+#[derive(Hash, Clone, Debug)]
 struct Game {
     state: Board<Clean>,
     to_act: Color,
     ref_color: Color,
+}
+
+impl fmt::Display for Game {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Acting: {} (Ref: {})", self.to_act, self.ref_color)?;
+        writeln!(f, "{}", self.state)
+    }
 }
 
 #[derive(Clone)]
@@ -375,12 +386,29 @@ struct Node {
     attrs: NodeInfo,
 }
 
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}", self.attrs)?;
+        writeln!(f, "{}", self.game)
+    }
+}
+
 #[derive(Clone)]
 struct NodeInfo {
     preceding_move: Option<usize>,
     rng: XorShiftRng,
     max_depth: usize,
     index_alloc: [usize; WIDTH],
+}
+
+impl fmt::Display for NodeInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self.preceding_move {
+            None => String::from("<ROOT>"),
+            Some(m) => format!("{}", m),
+        };
+        writeln!(f, "last move: {}", s)
+    }
 }
 
 impl Default for NodeInfo {
@@ -416,7 +444,6 @@ impl NodeInfo {
 }
 
 
-
 impl Node {
     fn new_seeded(g: Game, seed: [u32; 4], max_depth: usize) -> Self {
         Node {
@@ -447,7 +474,8 @@ impl Node {
         if depth > self.max_depth() || nexts.is_empty() {
             let mv = self.preceding_move();
             assert!(!mv.is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act), mv.unwrap());
+            return (self.heuristic(trials) as i32 * self.game.color_weight(self.game.to_act),
+                    mv.unwrap());
         }
         nexts.into_par_iter()
             .map(|mut node| {
@@ -458,25 +486,70 @@ impl Node {
             .unwrap()
     }
 
-    fn negamax_ab(&mut self, depth: usize, trials: usize, alpha: i32, beta: i32) -> (i32, usize) {
-
-
+    fn minimax(&mut self, trials: usize, depth: usize) -> (i32, Option<usize>) {
         let nexts = self.possibilities();
-        if depth > self.max_depth() || nexts.is_empty() {
-            let mv = self.preceding_move();
-            assert!(!mv.is_none());
-            return (self.heuristic(trials) * self.game.color_weight(self.game.to_act), mv.unwrap());
+
+        if depth > self.max_depth() || self.game.state.has_winner() || nexts.is_empty() {
+            return (self.heuristic(trials) as i32, None);
         }
+        let moves_iter = nexts.into_iter()
+            .map(|mut node| {
+                let (s, _) = node.minimax(trials, depth + 1);
+                (s, node.preceding_move())
+            });
+
+        if self.game.to_act == self.game.ref_color {
+                moves_iter.max()
+            } else {
+                moves_iter.min()
+            }
+            .unwrap()
+
+        // print!("(depth {}) ", depth);
+        // debug(&self);
+        // println!("chose move {:?} with score {}!", res.1, res.0);
+
+    }
+
+    fn negamax_ab(&mut self, trials: usize) -> (i32, Option<usize>) {
+        self.negamax_ab_worker(0, trials, -(trials as i32), trials as i32)
+    }
+
+    fn negamax_ab_worker(&mut self,
+                         depth: usize,
+                         trials: usize,
+                         alpha: i32,
+                         beta: i32)
+                         -> (i32, Option<usize>) {
+        let nexts = self.possibilities();
+        // TODO: Think about whether we need a check for winner here. nexts may
+        // not be empty.. gotta check it somewhere
+        if depth >= self.max_depth() || nexts.is_empty() {
+            return (self.heuristic(trials) as i32 * self.game.color_weight(self.game.to_act), None);
+        }
+
+
+        // // Parallelism at the top level.
+        // if depth == 0 {
+        //     return nexts.into_par_iter()
+        //         .map(|mut node| {
+        //             let (s, m) = node.negamax_ab(trials);
+        //             (-s, m)
+        //         })
+        //         .max()
+        //         .unwrap();
+        // }
 
         let mut best = i32::min_value();
         let mut best_move = None;
         let mut alpha = alpha;
         for mut node in nexts {
-            let (s, m) = node.negamax_ab(depth + 1, trials, -beta, -alpha);
+            let (s, _) = node.negamax_ab_worker(depth + 1, trials, -beta, -alpha);
             let s = -s;
+
             if s >= best {
                 best = s;
-                best_move = Some(m);
+                best_move = node.preceding_move();
             }
 
             alpha = max(alpha, best);
@@ -485,7 +558,11 @@ impl Node {
             }
         }
 
-        (best, best_move.unwrap())
+        // print!("(depth {}) ", depth);
+        // debug(&self);
+        // println!("chose move {:?} with score {}!", best_move.unwrap(), best);
+
+        (best, best_move)
     }
 
     fn random_outcome(&mut self, c: Color) -> Option<Color> {
@@ -525,20 +602,18 @@ impl Node {
             .sum()
     }
 
-    fn heuristic(&mut self, trials: usize) -> i32 {
+    fn heuristic(&mut self, trials: usize) -> usize {
         if let Some(c) = self.game.state.winner() {
-            if c == self.game.ref_color {
-                return i32::max_value();
-            } else {
-                return i32::min_value();
-            }
-        } else {
-            self.monte_carlo(trials as u32) as i32
-        }
+            return if c == self.game.ref_color { trials } else { 0 };
+        };
+
+        self.monte_carlo(trials as u32) as usize
+
     }
 
-    fn possibilities(&self) -> Vec<Node> {
-        let moves = self.game.state.possible_moves(self.game.to_act);
+    fn possibilities(&mut self) -> Vec<Node> {
+        let mut moves = self.game.state.possible_moves(self.game.to_act);
+        // self.rng().shuffle(moves.as_mut_slice());
         moves.into_iter()
             .map(move |m| {
                 let mut new_attrs = self.attrs.clone();
@@ -551,6 +626,7 @@ impl Node {
                     },
                     attrs: new_attrs,
                 }
+
             })
             .collect()
     }
@@ -644,7 +720,8 @@ impl Player for AIPlayer {
     fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize {
         println!("Computer is thinking.....");
         let (s, m) = board.minimax(color, self.search_depth, self.trials);
-        println!("score: {}", s);
+        let m = m.unwrap();
+        println!("CHOSE MOVE: {} WITH SCORE {}", m, s);
         m
     }
 }
@@ -759,15 +836,39 @@ fn do_main() {
             .takes_value(true))
         .get_matches();
 
-    let mut human = HumanPlayer::new("Justin");
     let depth = value_t!(matches.value_of("depth"), usize).unwrap_or_else(|e| e.exit());
     let trials = value_t!(matches.value_of("trials"), usize).unwrap_or_else(|e| e.exit());
+
+    // do_test(depth, trials);
+
+    let mut human = HumanPlayer::new("Justin");
     let mut pc = AIPlayer::new("IRobot", depth, trials);
     Runner::run(&mut human, &mut pc);
 }
 
-fn main() {
+fn debug<T: fmt::Display>(x: &T) {
+    println!("{}", x);
+}
+
+fn ddebug<T: fmt::Debug>(x: &T) {
+    println!("{:?}", x);
+}
+
+fn do_test(depth: usize, trials: usize) {
+    let mut b = Board::new();
+    for i in 0..3 {
+        b.try_move_mut(2, R);
+    }
+    debug(&b);
+    b.minimax(R, depth, 100);
+}
+
+fn do_profile() {
     PROFILER.lock().unwrap().start("./my-prof2.profile");
     println!("{:?}", Board::new().minimax(R, 6, 100));
     PROFILER.lock().unwrap().stop();
+}
+
+fn main() {
+    do_main();
 }
