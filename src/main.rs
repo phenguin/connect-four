@@ -327,7 +327,7 @@ impl Board<Clean> {
             ref_color: to_act,
         };
         let mut node = Node::new(game, max_depth);
-        node.negamax_ab(trials)
+        node.negamax(trials, 0)
     }
 }
 
@@ -469,18 +469,15 @@ impl Node {
         self.attrs.preceding_move
     }
 
-    fn negamax(&mut self, trials: usize, depth: usize) -> (i32, usize) {
+    fn negamax(&mut self, trials: usize, depth: usize) -> (i32, Option<usize>) {
         let nexts = self.possibilities();
         if depth > self.max_depth() || nexts.is_empty() {
-            let mv = self.preceding_move();
-            assert!(!mv.is_none());
-            return (self.heuristic(trials) as i32 * self.game.color_weight(self.game.to_act),
-                    mv.unwrap());
+            return (self.heuristic(trials) as i32 * self.game.color_weight(self.game.to_act), None);
         }
         nexts.into_par_iter()
             .map(|mut node| {
                 let (s, m) = node.negamax(trials, depth + 1);
-                (-s, m)
+                (-s, node.preceding_move())
             })
             .max()
             .unwrap()
@@ -558,9 +555,9 @@ impl Node {
             }
         }
 
-        // print!("(depth {}) ", depth);
-        // debug(&self);
-        // println!("chose move {:?} with score {}!", best_move.unwrap(), best);
+        print!("(depth {}) ", depth);
+        debug(&self);
+        println!("chose move {:?} with score {}!", best_move.unwrap(), best);
 
         (best, best_move)
     }
@@ -676,7 +673,6 @@ impl Player for HumanPlayer {
 
         loop {
             println!("What is your move?");
-            print!("Enter a number between {} and {}:", 1, WIDTH);
             let mut choice = String::new();
             io::stdin()
                 .read_line(&mut choice)
