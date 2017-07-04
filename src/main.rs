@@ -22,13 +22,15 @@ use std::default::Default;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
+use std::str::FromStr;
+use std::cmp::Eq;
 use std::mem::transmute;
 
 const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
 
-#[derive(Clone, Copy, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, PartialOrd, PartialEq, Hash, Debug, Ord, Eq)]
 enum Color {
     R,
     B,
@@ -99,9 +101,9 @@ impl std::clone::Clone for C4Board {
     }
 }
 
-trait Game: Clone {
-    type Move: Clone + Copy;
-    type Agent: PartialEq + Clone + Copy;
+trait Game: Clone + Send {
+    type Move: Clone + Copy + Send + Ord;
+    type Agent: PartialEq + Clone + Copy + Send + Ord;
     fn to_act(&self) -> Self::Agent;
     fn player_weight(&self, &Self::Agent) -> Score;
     fn winner(&self) -> Option<Self::Agent>;
@@ -608,26 +610,34 @@ impl<G> Node<G>
     }
 }
 
-// trait Player {
-//     fn choose_move(&mut self, board: &C4Board, color: Color) -> usize;
-//     fn display_name(&self) -> &str;
-//     fn player_type(&self) -> &str;
-//     fn full_name(&self) -> String {
-//         format!("{} ({})", self.display_name(), self.player_type())
-//     }
-// }
+trait Player<G>
+    where G: Game + Send,
+          G::Agent: Send,
+          G::Move: Send + Ord
+{
+    fn choose_move(&mut self, game: &G) -> G::Move;
+    fn display_name(&self) -> &str;
+    fn player_type(&self) -> &str;
+    fn full_name(&self) -> String {
+        format!("{} ({})", self.display_name(), self.player_type())
+    }
+}
 
-// struct HumanPlayer {
-//     name: String,
-// }
+struct HumanPlayer {
+    name: String,
+}
 
-// impl HumanPlayer {
-//     fn new(name: &str) -> Self {
-//         HumanPlayer { name: String::from(name) }
-//     }
-// }
+impl HumanPlayer {
+    fn new(name: &str) -> Self {
+        HumanPlayer { name: String::from(name) }
+    }
+}
 
-// impl Player for HumanPlayer {
+// impl<G> Player<G> for HumanPlayer
+//     where G: Game + Send,
+//           G::Agent: Send,
+//           G::Move: Send + Ord
+// {
 //     fn display_name(&self) -> &str {
 //         self.name.as_str()
 //     }
@@ -636,7 +646,7 @@ impl<G> Node<G>
 //         "Human"
 //     }
 
-//     fn choose_move(&mut self, board: &C4Board, color: Color) -> usize {
+//     fn choose_move(&mut self, board: &C4Board, color: ) -> usize {
 //         println!("{}'s move.", color.show());
 
 //         loop {
@@ -666,58 +676,64 @@ impl<G> Node<G>
 //         }
 //     }
 // }
-// struct AIPlayer {
-//     name: String,
-//     search_depth: usize,
-//     trials: usize,
-// }
+struct AIPlayer<G: Game> {
+    name: String,
+    strategy: Negamax<G>,
+}
 
-// impl Player for AIPlayer {
-//     fn display_name(&self) -> &str {
-//         self.name.as_str()
-//     }
+impl<G> Player<G> for AIPlayer<G>
+    where G: Game + Send,
+          G::Agent: Send,
+          G::Move: Send + Ord + fmt::Debug
+{
+    fn display_name(&self) -> &str {
+        self.name.as_str()
+    }
 
-//     fn player_type(&self) -> &str {
-//         "Computer"
-//     }
+    fn player_type(&self) -> &str {
+        "Computer"
+    }
 
-//     fn choose_move(&mut self, board: &C4Board, color: Color) -> usize {
-//         println!("Computer is thinking.....");
-//         let (s, m) = board.minimax(color, self.search_depth, self.trials);
-//         let m = m.unwrap();
-//         println!("CHOSE MOVE: {} WITH SCORE {}", m, s);
-//         m
-//     }
-// }
+    fn choose_move(&mut self, board: &G) -> G::Move {
+        println!("Computer is thinking.....");
+        let m = self.strategy.decide(board);
+        println!("CHOSE MOVE: {:?}", m);
+        m
+    }
+}
 
-// impl AIPlayer {
-//     fn new(name: &str, search_depth: usize, trials: usize) -> Self {
-//         AIPlayer {
-//             name: String::from(name),
-//             search_depth: search_depth,
-//             trials: trials,
-//         }
-//     }
-// }
+impl<G: Game> AIPlayer<G> {
+    fn new(name: &str, search_depth: usize, trials: usize) -> Self {
+        AIPlayer {
+            name: String::from(name),
+            strategy: Negamax::create(NegamaxParams {
+                max_depth: search_depth,
+                trials: trials,
+            }),
+        }
+    }
+}
 
-// type Plr<'a> = &'a mut Player;
+type Plr<'a, G> = &'a mut Player<G>;
 
-// struct Runner<'a> {
+// struct Runner<'a, G: Game> {
 //     board: C4Board,
-//     to_act: Color,
-//     players: (Plr<'a>, Plr<'a>),
-//     winner: Option<Color>,
+//     players: (Plr<'a, G>, Plr<'a, G>),
+//     winner: Option<G::Agent>,
 // }
 
-// impl<'a> Runner<'a> {
-//     fn new(p1: Plr<'a>, p2: Plr<'a>) -> Self {
+// impl<'a, G> Runner<'a, G>
+//     where G: Game + Send,
+//           G::Agent: Send,
+//           G::Move: Send + Ord
+// {
+//     fn new(p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
 //         Self::new_with_first_to_act(Color::random(), p1, p2)
 //     }
 
-//     fn new_with_first_to_act(color: Color, p1: Plr<'a>, p2: Plr<'a>) -> Self {
+//     fn new_with_first_to_act(color: Color, p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
 //         Runner {
-//             board: C4Board::new(),
-//             to_act: color,
+//             board: G::new(),
 //             players: (p1, p2),
 //             winner: None,
 //         }
