@@ -90,14 +90,14 @@ impl fmt::Display for Slot {
 }
 
 #[derive(Hash, Debug)]
-struct Board<T> {
+struct C4Board<T> {
     board: [[Slot; WIDTH]; HEIGHT],
     winner: Option<Color>,
     _phantom: PhantomData<T>,
 }
-impl<T> std::clone::Clone for Board<T> {
-    fn clone(&self) -> Board<T> {
-        Board {
+impl<T> std::clone::Clone for C4Board<T> {
+    fn clone(&self) -> C4Board<T> {
+        C4Board {
             board: self.board,
             winner: self.winner,
             _phantom: PhantomData,
@@ -114,17 +114,17 @@ struct Clean {}
 struct ValidMove {
     index: usize,
     color: Color,
-    valid_for: Board<Dirty>,
+    valid_for: C4Board<Dirty>,
 }
 
 struct ValidMoveMut<'gs> {
     index: usize,
     color: Color,
-    valid_for: &'gs mut Board<Clean>,
+    valid_for: &'gs mut C4Board<Clean>,
 }
 
 impl ValidMove {
-    pub fn board(&self) -> &Board<Dirty> {
+    pub fn board(&self) -> &C4Board<Dirty> {
         &self.valid_for
     }
 
@@ -136,7 +136,7 @@ impl ValidMove {
         self.color
     }
 
-    fn apply(self) -> (Board<Clean>, usize) {
+    fn apply(self) -> (C4Board<Clean>, usize) {
         let mut res = self.valid_for;
         let n = self.index;
         for i in 0..HEIGHT {
@@ -175,10 +175,10 @@ impl<'gs> ValidMoveMut<'gs> {
         panic!("This shouldn't happen for validated moves.");
     }
 }
-impl Board<Clean> {
+impl C4Board<Clean> {
     fn new() -> Self {
         // board[0] is the bottom row, board[3] is the top.
-        Board {
+        C4Board {
             board: [[Slot::new(); WIDTH]; HEIGHT],
             winner: None,
             _phantom: PhantomData,
@@ -269,7 +269,7 @@ impl Board<Clean> {
         true
     }
 
-    fn verify_move(self: Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
+    fn verify_move(self: C4Board<Clean>, col: usize, color: Color) -> Option<ValidMove> {
         if !self.move_valid(col) {
             return None;
         }
@@ -296,7 +296,7 @@ impl Board<Clean> {
         })
     }
 
-    fn dirtied(self) -> Board<Dirty> {
+    fn dirtied(self) -> C4Board<Dirty> {
         unsafe { transmute(self) }
     }
 
@@ -321,23 +321,23 @@ impl Board<Clean> {
     }
 
     fn minimax(&self, to_act: Color, max_depth: usize, trials: usize) -> (i32, Option<usize>) {
-        let game = Game {
+        let game = ConnectFour {
             state: self.clone(),
             to_act: to_act,
             ref_color: to_act,
         };
-        let mut node = Node::new(game, max_depth);
+        let mut node = Node::new(&game, max_depth);
         node.negamax(trials, 0)
     }
 }
 
-impl Board<Dirty> {
-    fn cleaned(self) -> Board<Clean> {
+impl C4Board<Dirty> {
+    fn cleaned(self) -> C4Board<Clean> {
         unsafe { transmute(self) }
     }
 }
 
-impl<T> Board<T> {
+impl<T> C4Board<T> {
     fn get(&self, i: usize, j: usize) -> Slot {
         self.board[i][j]
     }
@@ -347,7 +347,7 @@ impl<T> Board<T> {
     }
 }
 
-impl<T> fmt::Display for Board<T> {
+impl<T> fmt::Display for C4Board<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let dashes: String = (0..WIDTH * 3).map(|_| "-").collect();
         for row in self.board.iter().rev() {
@@ -367,13 +367,13 @@ impl<T> fmt::Display for Board<T> {
 }
 
 #[derive(Hash, Clone, Debug)]
-struct Game {
-    state: Board<Clean>,
+struct ConnectFour {
+    state: C4Board<Clean>,
     to_act: Color,
     ref_color: Color,
 }
 
-impl fmt::Display for Game {
+impl fmt::Display for ConnectFour {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Acting: {} (Ref: {})", self.to_act, self.ref_color)?;
         writeln!(f, "{}", self.state)
@@ -382,7 +382,7 @@ impl fmt::Display for Game {
 
 #[derive(Clone)]
 struct Node {
-    game: Game,
+    game: ConnectFour,
     attrs: NodeInfo,
 }
 
@@ -443,16 +443,58 @@ impl NodeInfo {
     }
 }
 
+trait GameState {
+    type Move;
+}
+trait Strategy<G: GameState> {
+    type Params;
+    fn decide(&mut self, &G) -> G::Move;
+    fn create(Self::Params) -> Self;
+}
+
+struct NegamaxState {}
+struct NegamaxParams {
+    max_depth: usize,
+    trials: usize,
+}
+
+struct Negamax {
+    params: NegamaxParams,
+    state: NegamaxState,
+}
+
+impl GameState for ConnectFour {
+    type Move = usize;
+}
+
+impl Negamax {
+    fn negamax(&mut self, game: &ConnectFour, depth: usize) -> (i32, Option<usize>) {
+        let NegamaxParams { trials, max_depth, .. } = self.params;
+        let mut node = Node::new(game, max_depth);
+        node.negamax(trials, 0)
+    }
+}
+
+impl Strategy<ConnectFour> for Negamax {
+    type Params = NegamaxParams;
+    fn decide(&mut self, game: &ConnectFour) -> usize {
+        panic!("Not implemented");
+    }
+    fn create(p: NegamaxParams) -> Self {
+        panic!("Not implemented");
+    }
+}
+
 
 impl Node {
-    fn new_seeded(g: Game, seed: [u32; 4], max_depth: usize) -> Self {
+    fn new_seeded(g: &ConnectFour, seed: [u32; 4], max_depth: usize) -> Self {
         Node {
-            game: g,
+            game: g.clone(),
             attrs: NodeInfo::new_seeded(seed, max_depth),
         }
     }
 
-    fn new(g: Game, max_depth: usize) -> Self {
+    fn new(g: &ConnectFour, max_depth: usize) -> Self {
         let seed = rand::random::<[u32; 4]>();
         Self::new_seeded(g, seed, max_depth)
     }
@@ -616,7 +658,7 @@ impl Node {
                 let mut new_attrs = self.attrs.clone();
                 new_attrs.preceding_move = Some(m.index());
                 Node {
-                    game: Game {
+                    game: ConnectFour {
                         state: m.apply().0,
                         to_act: self.game.to_act.flip(),
                         ref_color: self.game.ref_color,
@@ -629,7 +671,7 @@ impl Node {
     }
 }
 
-impl Game {
+impl ConnectFour {
     fn color_weight(&self, c: Color) -> i32 {
         if c == self.ref_color { 1 } else { -1 }
     }
@@ -641,7 +683,7 @@ impl Game {
 }
 
 trait Player {
-    fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize;
+    fn choose_move(&mut self, board: &C4Board<Clean>, color: Color) -> usize;
     fn display_name(&self) -> &str;
     fn player_type(&self) -> &str;
     fn full_name(&self) -> String {
@@ -668,7 +710,7 @@ impl Player for HumanPlayer {
         "Human"
     }
 
-    fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize {
+    fn choose_move(&mut self, board: &C4Board<Clean>, color: Color) -> usize {
         println!("{}'s move.", color.show());
 
         loop {
@@ -713,7 +755,7 @@ impl Player for AIPlayer {
         "Computer"
     }
 
-    fn choose_move(&mut self, board: &Board<Clean>, color: Color) -> usize {
+    fn choose_move(&mut self, board: &C4Board<Clean>, color: Color) -> usize {
         println!("Computer is thinking.....");
         let (s, m) = board.minimax(color, self.search_depth, self.trials);
         let m = m.unwrap();
@@ -735,7 +777,7 @@ impl AIPlayer {
 type Plr<'a> = &'a mut Player;
 
 struct Runner<'a> {
-    board: Board<Clean>,
+    board: C4Board<Clean>,
     to_act: Color,
     players: (Plr<'a>, Plr<'a>),
     winner: Option<Color>,
@@ -748,7 +790,7 @@ impl<'a> Runner<'a> {
 
     fn new_with_first_to_act(color: Color, p1: Plr<'a>, p2: Plr<'a>) -> Self {
         Runner {
-            board: Board::new(),
+            board: C4Board::new(),
             to_act: color,
             players: (p1, p2),
             winner: None,
@@ -772,7 +814,7 @@ impl<'a> Runner<'a> {
         (*self).to_act = Color::random();
         println!("{} goes first!", self.to_act.show());
 
-        (*self).board = Board::new();
+        (*self).board = C4Board::new();
     }
 
     fn check_winner(&mut self) -> bool {
@@ -851,7 +893,7 @@ fn ddebug<T: fmt::Debug>(x: &T) {
 }
 
 fn do_test(depth: usize, trials: usize) {
-    let mut b = Board::new();
+    let mut b = C4Board::new();
     for i in 0..3 {
         b.try_move_mut(2, R);
     }
@@ -861,7 +903,7 @@ fn do_test(depth: usize, trials: usize) {
 
 fn do_profile() {
     PROFILER.lock().unwrap().start("./my-prof2.profile");
-    println!("{:?}", Board::new().minimax(R, 6, 100));
+    println!("{:?}", C4Board::new().minimax(R, 6, 100));
     PROFILER.lock().unwrap().stop();
 }
 
