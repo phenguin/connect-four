@@ -468,7 +468,7 @@ impl GameState for ConnectFour {
 }
 
 impl Negamax {
-    fn negamax(&mut self, game: &ConnectFour, depth: usize) -> (i32, Option<usize>) {
+    fn negamax(&mut self, game: &ConnectFour) -> (i32, Option<usize>) {
         let NegamaxParams { trials, max_depth, .. } = self.params;
         let mut node = Node::new(game, max_depth);
         node.negamax(trials, 0)
@@ -478,10 +478,14 @@ impl Negamax {
 impl Strategy<ConnectFour> for Negamax {
     type Params = NegamaxParams;
     fn decide(&mut self, game: &ConnectFour) -> usize {
-        panic!("Not implemented");
+        let (_, maybe_move) = self.negamax(game);
+        maybe_move.expect("No moves available from start position.")
     }
-    fn create(p: NegamaxParams) -> Self {
-        panic!("Not implemented");
+    fn create(params: NegamaxParams) -> Self {
+        Negamax {
+            params: params,
+            state: NegamaxState {},
+        }
     }
 }
 
