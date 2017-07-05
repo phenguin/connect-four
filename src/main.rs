@@ -117,9 +117,7 @@ trait Game: Clone + Send {
     fn to_act(&self) -> Self::Agent;
     fn player_weight(&self, &Self::Agent) -> Score;
     fn winner(&self) -> Option<Self::Agent>;
-    fn agent_id<T>(&self, &Self::Agent) -> u32 {
-        5
-    }
+    fn agent_id(&self, &Self::Agent) -> u32;
 
     fn ref_player(&self) -> Self::Agent;
     fn new(&Self::Agent) -> Self;
@@ -257,7 +255,7 @@ struct ConnectFour {
 
 impl fmt::Display for ConnectFour {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Acting: {}", self.to_act)?;
+        writeln!(f, "Acting: {}, Ref: {}", self.to_act, self.ref_player)?;
         writeln!(f, "{}", self.state)
     }
 }
@@ -366,6 +364,13 @@ impl Game for ConnectFour {
     type Move = (usize, Self::Agent);
     type Agent = Color;
 
+    fn agent_id(&self, &a: &Self::Agent) -> u32 {
+        match a {
+            R => 0,
+            B => 1,
+        }
+    }
+
     fn winner(&self) -> Option<Self::Agent> {
         self.winner
     }
@@ -441,10 +446,11 @@ impl Game for ConnectFour {
                     if self.has_won(&color) {
                         self.winner = Some(color);
                     }
+                    self.to_act = self.to_act.flip();
+                    return;
                 }
             }
         }
-        self.to_act = self.to_act.flip();
         panic!("This shouldn't happen for validated moves.");
     }
 
@@ -494,7 +500,7 @@ impl Game for ConnectFour {
 }
 
 impl<G> Negamax<G>
-    where G: Game + Send,
+    where G: Game + Send + fmt::Display,
           G::Agent: Send,
           G::Move: Send + Ord
 {
@@ -506,7 +512,7 @@ impl<G> Negamax<G>
 }
 
 impl<G> Strategy<G> for Negamax<G>
-    where G: Game + Send,
+    where G: Game + Send + fmt::Display,
           G::Agent: Send,
           G::Move: Send + Ord
 {
@@ -526,7 +532,7 @@ impl<G> Strategy<G> for Negamax<G>
 
 
 impl<G> Node<G>
-    where G: Game + Send,
+    where G: Game + Send + fmt::Display,
           G::Agent: Send,
           G::Move: Send + Ord
 {
@@ -560,33 +566,36 @@ impl<G> Node<G>
             return (self.heuristic(trials) as Score * self.game.player_weight(&self.game.to_act()),
                     None);
         }
-        nexts.into_par_iter()
+        let it = nexts.into_iter()
             .map(|mut node| {
                 let (s, _) = node.negamax(trials, depth + 1);
                 (-s, node.preceding_move())
             })
             .max()
-            .unwrap()
+            .unwrap();
+        println!("depth: {}, score: {}, move: {}", depth, it.0, self.game);
+        it
     }
 
     // TODO Make this not super slow.
     fn random_outcome(&mut self) -> Option<G::Agent> {
-        let game = (*self).game.clone();
+        let mut game = (*self).game.clone();
 
-        let mut moves = self.game.possible_moves();
+        while !game.has_winner() {
+            let mut moves = game.possible_moves();
 
-        if moves.is_empty() {
-            return None;
-        }
+            if moves.is_empty() {
+                return None;
+            }
 
-        self.rng().shuffle(&mut moves);
-        for m in moves {
-            m.apply();
+            self.rng().shuffle(&mut moves);
+            let m = moves[0].clone();
+            game = m.apply();
             if game.has_winner() {
-                break;
+                return game.winner();
             }
         }
-        game.winner()
+        None
     }
 
     fn monte_carlo(&mut self, trials: u32) -> u32 {
@@ -655,7 +664,7 @@ impl HumanPlayer {
 impl<G> Player<G> for HumanPlayer
     where G: ParseGame + Send,
           G::Agent: Send + fmt::Display,
-          G::Move: Send + Ord
+          G::Move: Send + Ord + fmt::Debug
 {
     fn display_name(&self) -> &str {
         self.name.as_str()
@@ -667,7 +676,7 @@ impl<G> Player<G> for HumanPlayer
 
     fn choose_move(&mut self, game: &G) -> G::Move {
         let agent = game.to_act();
-        println!("{}'s move.", game.to_act());
+        println!("{}'s move.", agent);
 
         loop {
             println!("What is your move?");
@@ -682,7 +691,9 @@ impl<G> Player<G> for HumanPlayer
                 None => continue,
             };
 
-            if game.move_valid(&choice) {
+            println!("{:?}", choice);
+
+            if !game.move_valid(&choice) {
                 println!("Invalid move..");
                 continue;
             }
@@ -698,7 +709,7 @@ struct AIPlayer<G: Game> {
 }
 
 impl<G> Player<G> for AIPlayer<G>
-    where G: Game + Send,
+    where G: Game + Send + fmt::Display,
           G::Agent: Send,
           G::Move: Send + Ord + fmt::Debug
 {
@@ -718,7 +729,7 @@ impl<G> Player<G> for AIPlayer<G>
     }
 }
 
-impl<G: Game> AIPlayer<G> {
+impl<G: Game + fmt::Display> AIPlayer<G> {
     fn new(name: &str, search_depth: usize, trials: usize) -> Self {
         AIPlayer {
             name: String::from(name),
@@ -779,7 +790,8 @@ impl<'a, G> Runner<'a, G>
 
     fn step(&mut self) {
         let cloned_board = self.board.clone();
-        if self.board.agent_id::<Self>(&cloned_board.to_act()) == 0 {
+        println!("{}", cloned_board);
+        if self.board.agent_id(&cloned_board.to_act()) == 0 {
             let p1_move = (*self).players.0.choose_move(&cloned_board);
             self.board.try_move(p1_move);
         } else {
