@@ -106,7 +106,7 @@ pub mod connectfour {
     use self::Color::*;
     use self::Slot::*;
     use rand;
-    use fmt;
+    use std::fmt;
     use std::clone::Clone;
     use super::{Game, ParseGame, Score, ValidMove};
     use std::str::FromStr;

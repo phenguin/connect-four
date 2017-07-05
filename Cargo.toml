@@ -1,10 +1,10 @@
 [package]
-name = "connect-four"
+name = "gameai"
 version = "0.1.0"
 authors = ["Justin Cullen <jcullen@alum.mit.edu>"]
 
 [dependencies]
-clippy = "*"
+clippy = {version = "*", optional = true}
 clap = "*"
 rand = "*"
 rayon = "*"
@@ -12,3 +12,6 @@ cpuprofiler = "*"
 
 [profile.release]
 debug = true
+
+[features]
+default = ["clippy"]

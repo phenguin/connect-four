@@ -1,5 +1,5 @@
 use game::{Game, ParseGame};
-use fmt;
+use std::fmt;
 use std::io;
 use rand;
 use strategies::{Strategy, Negamax, NegamaxParams};

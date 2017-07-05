@@ -1,23 +1,14 @@
-#![feature(plugin)]
-#![feature(conservative_impl_trait)]
 #![feature(use_extern_macros)]
-#![plugin(clippy)]
-// #![allow(dead_code)]
 
-extern crate rand;
-extern crate rayon;
+extern crate gameai;
 extern crate clap;
-extern crate cpuprofiler;
-
-// use cpuprofiler::PROFILER;
-
 
 use clap::{Arg, App, value_t};
 use std::fmt;
 
-mod game;
-mod strategies;
-mod runner;
+
+use gameai::game;
+use gameai::runner;
 
 fn do_main() {
     let matches = App::new("Connect Four")
@@ -47,20 +38,6 @@ fn do_main() {
     let mut pc = runner::AIPlayer::<game::connectfour::ConnectFour>::new("IRobot", depth, trials);
     runner::Runner::run(&mut human, &mut pc);
 }
-
-fn display<T: fmt::Display>(x: &T) {
-    println!("{}", x);
-}
-
-fn debug<T: fmt::Debug>(x: &T) {
-    println!("{:?}", x);
-}
-
-// fn do_profile() {
-//     PROFILER.lock().unwrap().start("./my-prof2.profile");
-//     println!("{:?}", ConnectFour::new().minimax(R, 6, 100));
-//     PROFILER.lock().unwrap().stop();
-// }
 
 fn main() {
     do_main();
