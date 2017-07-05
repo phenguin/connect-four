@@ -566,14 +566,13 @@ impl<G> Node<G>
             return (self.heuristic(trials) as Score * self.game.player_weight(&self.game.to_act()),
                     None);
         }
-        let it = nexts.into_iter()
+        let it = nexts.into_par_iter()
             .map(|mut node| {
                 let (s, _) = node.negamax(trials, depth + 1);
                 (-s, node.preceding_move())
             })
             .max()
             .unwrap();
-        println!("depth: {}, score: {}, move: {}", depth, it.0, self.game);
         it
     }
 
