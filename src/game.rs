@@ -22,6 +22,10 @@ impl<G: Game> ValidMove<G> {
 }
 
 impl<'gs, G: Game> ValidMoveMut<'gs, G> {
+    pub fn valid_move(&self) -> &G::Move {
+        &self.valid_move
+    }
+
     #[allow(dead_code)]
     fn apply(self) {
         self.valid_for.apply(self.valid_move);
@@ -47,7 +51,7 @@ pub trait RandGame: Game + Clone {
         })
     }
 
-    fn random_outcome<R: Rng>(&mut self, rng: &mut R) -> Option<Self::Agent> {
+    fn random_outcome<R: Rng>(&self, rng: &mut R) -> Option<Self::Agent> {
         let mut game = self.clone();
 
         while !game.has_winner() {
@@ -62,7 +66,7 @@ pub trait RandGame: Game + Clone {
         None
     }
 
-    fn monte_carlo<R: Rng>(&mut self, rng: &mut R, trials: u32) -> u32 {
+    fn monte_carlo<R: Rng>(&self, rng: &mut R, trials: u32) -> u32 {
         let ref_player = self.ref_player();
         (0..trials)
             .flat_map(move |_| self.random_outcome(rng))
@@ -146,7 +150,7 @@ pub mod connectfour {
     use rand;
     use std::fmt;
     use std::clone::Clone;
-    use super::{Game, ParseGame, Score, ValidMove};
+    use super::{Game, RandGame, ParseGame, Score, ValidMove};
     use std::str::FromStr;
 
     const HEIGHT: usize = 6;
@@ -276,6 +280,8 @@ pub mod connectfour {
             usize::from_str(input).ok().map(|n| (n, self.to_act()))
         }
     }
+
+    impl RandGame for ConnectFour {}
 
     impl Game for ConnectFour {
         type Move = (usize, Self::Agent);

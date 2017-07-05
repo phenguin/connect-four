@@ -4,7 +4,6 @@ extern crate gameai;
 extern crate clap;
 
 use clap::{Arg, App, value_t};
-use std::fmt;
 
 
 use gameai::game;

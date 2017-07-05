@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use rayon::prelude::*;
 
 #[derive(Clone)]
-struct Node<G: Game> {
+pub struct Node<G: Game> {
     game: G,
     attrs: NodeInfo<G>,
 }
