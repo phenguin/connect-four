@@ -36,6 +36,12 @@ enum Color {
     B,
 }
 
+impl rand::Rand for Color {
+    fn rand<R: rand::Rng>(rng: &mut R) -> Color {
+        Color::random()
+    }
+}
+
 impl Color {
     fn flip(&self) -> Color {
         match *self {
@@ -101,12 +107,19 @@ impl std::clone::Clone for C4Board {
     }
 }
 
+trait ParseGame: Game {
+    fn parse_move(&self, &str) -> Option<Self::Move>;
+}
+
 trait Game: Clone + Send {
     type Move: Clone + Copy + Send + Ord;
     type Agent: PartialEq + Clone + Copy + Send + Ord;
     fn to_act(&self) -> Self::Agent;
     fn player_weight(&self, &Self::Agent) -> Score;
     fn winner(&self) -> Option<Self::Agent>;
+    fn agent_id<T>(&self, &Self::Agent) -> u32 {
+        5
+    }
 
     fn ref_player(&self) -> Self::Agent;
     fn new(&Self::Agent) -> Self;
@@ -343,6 +356,12 @@ struct Negamax<G>
 }
 
 type Score = i32;
+impl ParseGame for ConnectFour {
+    fn parse_move(&self, input: &str) -> Option<Self::Move> {
+        usize::from_str(input).ok().map(|n| (n, self.to_act()))
+    }
+}
+
 impl Game for ConnectFour {
     type Move = (usize, Self::Agent);
     type Agent = Color;
@@ -633,49 +652,46 @@ impl HumanPlayer {
     }
 }
 
-// impl<G> Player<G> for HumanPlayer
-//     where G: Game + Send,
-//           G::Agent: Send,
-//           G::Move: Send + Ord
-// {
-//     fn display_name(&self) -> &str {
-//         self.name.as_str()
-//     }
+impl<G> Player<G> for HumanPlayer
+    where G: ParseGame + Send,
+          G::Agent: Send + fmt::Display,
+          G::Move: Send + Ord
+{
+    fn display_name(&self) -> &str {
+        self.name.as_str()
+    }
 
-//     fn player_type(&self) -> &str {
-//         "Human"
-//     }
+    fn player_type(&self) -> &str {
+        "Human"
+    }
 
-//     fn choose_move(&mut self, board: &C4Board, color: ) -> usize {
-//         println!("{}'s move.", color.show());
+    fn choose_move(&mut self, game: &G) -> G::Move {
+        let agent = game.to_act();
+        println!("{}'s move.", game.to_act());
 
-//         loop {
-//             println!("What is your move?");
-//             let mut choice = String::new();
-//             io::stdin()
-//                 .read_line(&mut choice)
-//                 .expect("Failed to read line... something is mad broke.");
-//             println!("");
+        loop {
+            println!("What is your move?");
+            let mut choice = String::new();
+            io::stdin()
+                .read_line(&mut choice)
+                .expect("Failed to read line... something is mad broke.");
+            println!("");
 
-//             let choice: usize = match choice.trim().parse() {
-//                 Ok(num) => num,
-//                 Err(_) => continue,
-//             };
+            let choice = match game.parse_move(choice.trim()) {
+                Some(m) => m,
+                None => continue,
+            };
 
-//             if !(1 <= choice && choice <= WIDTH) {
-//                 println!("Try a better number...");
-//                 continue;
-//             }
+            if game.move_valid(&choice) {
+                println!("Invalid move..");
+                continue;
+            }
 
-//             if board.clone().verify_move(choice - 1, color).is_none() {
-//                 println!("Invalid move..");
-//                 continue;
-//             }
+            return choice;
+        }
+    }
+}
 
-//             return choice - 1;
-//         }
-//     }
-// }
 struct AIPlayer<G: Game> {
     name: String,
     strategy: Negamax<G>,
@@ -716,137 +732,123 @@ impl<G: Game> AIPlayer<G> {
 
 type Plr<'a, G> = &'a mut Player<G>;
 
-// struct Runner<'a, G: Game> {
-//     board: C4Board,
-//     players: (Plr<'a, G>, Plr<'a, G>),
-//     winner: Option<G::Agent>,
-// }
+struct Runner<'a, G: Game + 'a> {
+    board: G,
+    players: (Plr<'a, G>, Plr<'a, G>),
+    winner: Option<G::Agent>,
+}
 
-// impl<'a, G> Runner<'a, G>
-//     where G: Game + Send,
-//           G::Agent: Send,
-//           G::Move: Send + Ord
-// {
-//     fn new(p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
-//         Self::new_with_first_to_act(Color::random(), p1, p2)
-//     }
+impl<'a, G> Runner<'a, G>
+    where G: Game + Send + fmt::Display + Clone,
+          G::Agent: Send + rand::Rand + fmt::Display,
+          G::Move: Send + Ord
+{
+    fn new(p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
+        Self::new_with_first_to_act(rand::random::<G::Agent>(), p1, p2)
+    }
 
-//     fn new_with_first_to_act(color: Color, p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
-//         Runner {
-//             board: G::new(),
-//             players: (p1, p2),
-//             winner: None,
-//         }
-//     }
+    fn new_with_first_to_act(agent: G::Agent, p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
+        Runner {
+            board: G::new(&agent),
+            players: (p1, p2),
+            winner: None,
+        }
+    }
 
-//     fn show_board(&self) {
-//         println!();
-//         println!("{}", self.board);
-//     }
-//     fn init(&mut self) {
-//         println!("CONNECT FOUR");
-//         println!("Player 1, {}, is {}'s.",
-//                  self.players.0.full_name(),
-//                  R.show());
-//         println!("Player 2, {}, is {}'s.",
-//                  self.players.1.full_name(),
-//                  B.show());
-//         println!("Flipping to see who starts...");
+    fn show_board(&self) {
+        println!();
+        println!("{}", self.board);
+    }
 
-//         (*self).to_act = Color::random();
-//         println!("{} goes first!", self.to_act.show());
+    fn init(&mut self) {
+        println!("CONNECT FOUR");
+        println!("Player 1, {}, is {}'s.",
+                 self.players.0.full_name(),
+                 R.show());
+        println!("Player 2, {}, is {}'s.",
+                 self.players.1.full_name(),
+                 B.show());
+        println!("Flipping to see who starts...");
 
-//         (*self).board = C4Board::new();
-//     }
+        println!("{} goes first!", self.board.to_act());
+    }
 
-//     fn check_winner(&mut self) -> bool {
-//         (*self).winner = self.board.winner();
-//         self.winner.is_some()
-//     }
+    fn check_winner(&mut self) -> bool {
+        self.board.has_winner()
+    }
 
-//     fn step(&mut self) {
-//         let cloned_board = self.board.clone();
-//         self.show_board();
-//         match self.to_act {
-//             R => {
-//                 let p1_move = (*self).players.0.choose_move(&cloned_board, R);
-//                 self.board.try_move(p1_move, R);
-//             }
-//             B => {
-//                 let p2_move = (*self).players.1.choose_move(&cloned_board, B);
-//                 self.board.try_move(p2_move, B);
-//             }
-//         }
-//         (*self).to_act = self.to_act.flip();
-//     }
+    fn step(&mut self) {
+        let cloned_board = self.board.clone();
+        if self.board.agent_id::<Self>(&cloned_board.to_act()) == 0 {
+            let p1_move = (*self).players.0.choose_move(&cloned_board);
+            self.board.try_move(p1_move);
+        } else {
+            let p2_move = (*self).players.1.choose_move(&cloned_board);
+            self.board.try_move(p2_move);
+        }
+    }
 
-//     fn game_loop(&mut self) {
-//         while !self.check_winner() {
-//             self.step()
-//         }
 
-//         let winner = self.winner.unwrap();
-//         println!("Winner is: {}", winner.show());
-//     }
+    fn game_loop(&mut self) {
+        while !self.check_winner() {
+            self.step()
+        }
 
-//     fn run<'b>(p1: Plr<'b>, p2: Plr<'b>) -> Option<Color> {
-//         let mut runner = Runner::new(p1, p2);
-//         runner.init();
-//         runner.game_loop();
-//         runner.winner
-//     }
-// }
+        let winner = self.winner.unwrap();
+        println!("Winner is: {}", winner);
+    }
 
-// fn do_main() {
-//     let matches = App::new("Connect Four")
-//         .version("0.1.0")
-//         .about("Simple project to play with while learning rust")
-//         .arg(Arg::with_name("depth")
-//             .short("d")
-//             .value_name("UINT")
-//             .long("search_depth")
-//             .help("Specifies how many game tree levels the AI will search before trying \
-//                    heuristics.")
-//             .takes_value(true))
-//         .arg(Arg::with_name("trials")
-//             .short("t")
-//             .value_name("UINT")
-//             .long("monte_carlo_trials")
-//             .help("How many monte carlo trials to run for the heuristic.")
-//             .takes_value(true))
-//         .get_matches();
+    fn run<'b>(p1: Plr<'b, G>, p2: Plr<'b, G>) -> Option<G::Agent> {
+        let mut runner = Runner::new(p1, p2);
+        runner.init();
+        runner.game_loop();
+        runner.winner
+    }
+}
 
-//     let depth = value_t!(matches.value_of("depth"), usize).unwrap_or_else(|e| e.exit());
-//     let trials = value_t!(matches.value_of("trials"), usize).unwrap_or_else(|e| e.exit());
+fn do_main() {
+    let matches = App::new("Connect Four")
+        .version("0.1.0")
+        .about("Simple project to play with while learning rust")
+        .arg(Arg::with_name("depth")
+            .short("d")
+            .value_name("UINT")
+            .long("search_depth")
+            .help("Specifies how many game tree levels the AI will search before trying \
+                   heuristics.")
+            .takes_value(true))
+        .arg(Arg::with_name("trials")
+            .short("t")
+            .value_name("UINT")
+            .long("monte_carlo_trials")
+            .help("How many monte carlo trials to run for the heuristic.")
+            .takes_value(true))
+        .get_matches();
 
-//     // do_test(depth, trials);
+    let depth = value_t!(matches.value_of("depth"), usize).unwrap_or_else(|e| e.exit());
+    let trials = value_t!(matches.value_of("trials"), usize).unwrap_or_else(|e| e.exit());
 
-//     let mut human = HumanPlayer::new("Justin");
-//     let mut pc = AIPlayer::new("IRobot", depth, trials);
-//     Runner::run(&mut human, &mut pc);
-// }
+    // do_test(depth, trials);
 
-// fn debug<T: fmt::Display>(x: &T) {
-//     println!("{}", x);
-// }
+    let mut human = HumanPlayer::new("Justin");
+    let mut pc = AIPlayer::<ConnectFour>::new("IRobot", depth, trials);
+    Runner::run(&mut human, &mut pc);
+}
 
-// fn ddebug<T: fmt::Debug>(x: &T) {
-//     println!("{:?}", x);
-// }
+fn debug<T: fmt::Display>(x: &T) {
+    println!("{}", x);
+}
 
-// fn do_test(depth: usize, trials: usize) {
-//     let mut b = C4Board::new();
-//     for i in 0..3 {
-//         b.try_move_mut(2, R);
-//     }
-//     debug(&b);
-//     b.minimax(R, depth, 100);
-// }
+fn ddebug<T: fmt::Debug>(x: &T) {
+    println!("{:?}", x);
+}
 
 // fn do_profile() {
 //     PROFILER.lock().unwrap().start("./my-prof2.profile");
-//     println!("{:?}", C4Board::new().minimax(R, 6, 100));
+//     println!("{:?}", ConnectFour::new().minimax(R, 6, 100));
 //     PROFILER.lock().unwrap().stop();
 // }
 
-fn main() {}
+fn main() {
+    do_main();
+}
