@@ -34,6 +34,44 @@ pub trait ParseGame: Game {
     fn parse_move(&self, &str) -> Option<Self::Move>;
 }
 
+use rand::Rng;
+pub trait RandGame: Game + Clone {
+    fn random_move<R: Rng>(&mut self, rng: &mut R) -> Option<ValidMoveMut<Self>> {
+        let mut moves = self.possible_moves();
+        rng.shuffle(&mut moves);
+        moves.into_iter().next().map(move |m| {
+            ValidMoveMut {
+                valid_move: m.valid_move,
+                valid_for: self,
+            }
+        })
+    }
+
+    fn random_outcome<R: Rng>(&mut self, rng: &mut R) -> Option<Self::Agent> {
+        let mut game = self.clone();
+
+        while !game.has_winner() {
+            match game.random_move(rng) {
+                None => return None,
+                Some(m) => m.apply(),
+            }
+            if game.has_winner() {
+                return game.winner();
+            }
+        }
+        None
+    }
+
+    fn monte_carlo<R: Rng>(&mut self, rng: &mut R, trials: u32) -> u32 {
+        let ref_player = self.ref_player();
+        (0..trials)
+            .flat_map(move |_| self.random_outcome(rng))
+            .filter(move |c| *c == ref_player)
+            .map(|_| 1)
+            .sum()
+    }
+}
+
 pub trait Game: Clone + Send {
     type Move: Clone + Copy + Send + Ord;
     type Agent: PartialEq + Clone + Copy + Send + Ord;
