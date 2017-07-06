@@ -20,7 +20,7 @@ use std::hash::Hash;
 pub struct MCTSParams {
     // Time limit in ms.
     pub timeout: u32,
-    pub C: f64,
+    pub c: f64,
 }
 
 struct State<G: Hash + PartialEq + Eq> {
@@ -42,7 +42,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
         } else {
             let parent_visits = {
                 let stats_cache = &self.state.lock().unwrap().stats;
-                stats_cache.get(&game).map(|s| s.visits).unwrap_or(1)
+                stats_cache.get(game).map(|s| s.visits).unwrap_or(1)
             };
             let g = self.select(nexts, parent_visits);
             self.simulate(&g)
@@ -70,7 +70,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
     fn key(&self, s: &Stats, n: f64) -> f64 {
         let wins = s.losses as f64;
         let visits = s.visits as f64;
-        wins / visits + self.params.C * (n.ln() / visits).sqrt()
+        wins / visits + self.params.c * (n.ln() / visits).sqrt()
     }
 
     fn select(&self, choices: Vec<ValidMove<G>>, parent_visits: usize) -> G {
@@ -118,7 +118,7 @@ where
             (*self.state.lock().unwrap()).cur = Some(game.clone());
         }
         thread::sleep_ms(self.params.timeout);
-        let mut state = &self.state.lock().unwrap();
+        let state = &self.state.lock().unwrap();
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
@@ -140,7 +140,7 @@ where
         //              g);
         // }
 
-        let (best, stats) = nexts
+        let (best, _) = nexts
             .into_iter()
             .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {

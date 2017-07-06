@@ -2,7 +2,6 @@ use self::DotsPlayer::*;
 use rand;
 use std::fmt;
 use super::*;
-use std::str::FromStr;
 
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -96,6 +95,8 @@ impl DotsBoard {
     }
 }
 
+impl RandGame for Dots {}
+
 impl fmt::Display for DotsBoard {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for j in 0..(HEIGHT - 1) {
@@ -150,22 +151,10 @@ impl DotsMove {
             H(j, i) => H(j - 1, i),
         }
     }
-    fn down(&self) -> Self {
-        match *self {
-            V(j, i) => V(j + 1, i),
-            H(j, i) => H(j + 1, i),
-        }
-    }
     fn left(&self) -> Self {
         match *self {
             V(j, i) => V(j, i - 1),
             H(j, i) => H(j, i - 1),
-        }
-    }
-    fn right(&self) -> Self {
-        match *self {
-            V(j, i) => V(j, i + 1),
-            H(j, i) => H(j, i + 1),
         }
     }
     fn coords(&self) -> (usize, usize) {
@@ -179,7 +168,7 @@ use self::DotsMove::*;
 
 impl ParseGame for Dots {
     fn parse_move(&self, s: &str) -> Option<DotsMove> {
-        let pieces: Vec<&str> = s.split(" ").collect();
+        let pieces: Vec<&str> = s.split(' ').collect();
 
         let mj = pieces[1].parse::<usize>().ok();
         let mi = pieces[2].parse::<usize>().ok();
@@ -336,7 +325,7 @@ impl Dots {
                     box_bounds(m.up().coords(), &mut v);
                     conds.push((v, m.up().coords()));
                 } else {
-                    for b in [m.coords(), m.up().coords()].into_iter() {
+                    for b in &[m.coords(), m.up().coords()] {
                         let mut v = Vec::new();
                         box_bounds(*b, &mut v);
                         conds.push((v, *b));
@@ -349,7 +338,7 @@ impl Dots {
                     box_bounds(m.left().coords(), &mut v);
                     conds.push((v, m.left().coords()));
                 } else {
-                    for b in [m.coords(), m.left().coords()].into_iter() {
+                    for b in &[m.coords(), m.left().coords()] {
                         let mut v = Vec::new();
                         box_bounds(*b, &mut v);
                         conds.push((v, *b));
@@ -359,12 +348,12 @@ impl Dots {
         };
 
         for (checks, square) in conds {
-            if checks.into_iter().all(|mv| {
+            let got_square = checks.into_iter().all(|mv| {
                 let valid = !self.move_valid(&mv);
                 println!("square ({:?}) -- {:?}: {:?}", square, mv, valid);
                 valid
-            })
-            {
+            });
+            if got_square {
                 res.push(square);
             }
         }

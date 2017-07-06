@@ -4,9 +4,10 @@ use std::io;
 use rand;
 use strategies::Strategy;
 pub trait Player<G>
-    where G: Game + Send,
-          G::Agent: Send,
-          G::Move: Send + Ord
+where
+    G: Game + Send,
+    G::Agent: Send,
+    G::Move: Send + Ord,
 {
     fn choose_move(&mut self, game: &G) -> G::Move;
     fn display_name(&self) -> &str;
@@ -27,9 +28,10 @@ impl HumanPlayer {
 }
 
 impl<G> Player<G> for HumanPlayer
-    where G: ParseGame + Send,
-          G::Agent: Send + fmt::Display,
-          G::Move: Send + Ord + fmt::Debug
+where
+    G: ParseGame + Send,
+    G::Agent: Send + fmt::Display,
+    G::Move: Send + Ord + fmt::Debug,
 {
     fn display_name(&self) -> &str {
         self.name.as_str()
@@ -46,9 +48,9 @@ impl<G> Player<G> for HumanPlayer
         loop {
             println!("What is your move?");
             let mut choice = String::new();
-            io::stdin()
-                .read_line(&mut choice)
-                .expect("Failed to read line... something is mad broke.");
+            io::stdin().read_line(&mut choice).expect(
+                "Failed to read line... something is mad broke.",
+            );
             println!("");
 
             let choice = match game.parse_move(choice.trim()) {
@@ -76,10 +78,11 @@ pub struct AIPlayer<G: Game, S: Strategy<G>> {
 }
 
 impl<G, S> Player<G> for AIPlayer<G, S>
-    where G: RandGame + Send + fmt::Display,
-          G::Agent: Send,
-          G::Move: Send + Ord + fmt::Debug,
-          S: Strategy<G>
+where
+    G: RandGame + Send + fmt::Display,
+    G::Agent: Send,
+    G::Move: Send + Ord + fmt::Debug,
+    S: Strategy<G>,
 {
     fn display_name(&self) -> &str {
         self.name.as_str()
@@ -98,7 +101,8 @@ impl<G, S> Player<G> for AIPlayer<G, S>
 }
 
 impl<S, G: Game + fmt::Display> AIPlayer<G, S>
-    where S: Strategy<G>
+where
+    S: Strategy<G>,
 {
     pub fn new(name: &str, params: S::Params) -> Self {
         AIPlayer {
@@ -114,13 +118,13 @@ pub type Plr<'a, G> = &'a mut Player<G>;
 pub struct Runner<'a, G: Game + 'a> {
     board: G,
     players: (Plr<'a, G>, Plr<'a, G>),
-    winner: Option<G::Agent>,
 }
 
 impl<'a, G> Runner<'a, G>
-    where G: Game + Send + fmt::Display + Clone,
-          G::Agent: Send + rand::Rand + fmt::Display,
-          G::Move: Send + Ord
+where
+    G: Game + Send + fmt::Display + Clone,
+    G::Agent: Send + rand::Rand + fmt::Display,
+    G::Move: Send + Ord,
 {
     pub fn new(p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
         // Self::new_with_first_to_act(rand::random::<G::Agent>(), p1, p2)
@@ -131,7 +135,6 @@ impl<'a, G> Runner<'a, G>
         Runner {
             board: G::new(&agent),
             players: (p1, p2),
-            winner: None,
         }
     }
 
