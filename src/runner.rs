@@ -173,6 +173,6 @@ impl<'a, G> Runner<'a, G>
         let mut runner = Runner::new(p1, p2);
         runner.init();
         runner.game_loop();
-        runner.winner
+        runner.board.winner()
     }
 }
