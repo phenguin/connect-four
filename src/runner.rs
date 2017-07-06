@@ -2,7 +2,7 @@ use game::{RandGame, Game, ParseGame};
 use std::fmt;
 use std::io;
 use rand;
-use strategies::{Strategy, Negamax, NegamaxParams};
+use strategies::Strategy;
 pub trait Player<G>
     where G: Game + Send,
           G::Agent: Send,

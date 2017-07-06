@@ -4,7 +4,8 @@ extern crate gameai;
 extern crate cpuprofiler;
 
 use cpuprofiler::PROFILER;
-use gameai::strategies::{Negamax, NegamaxParams, Strategy};
+use gameai::strategies::negamax::{Negamax, NegamaxParams};
+use gameai::strategies::Strategy;
 use gameai::game::Game;
 use gameai::game::connectfour::{ConnectFour, Color};
 use gameai::*;

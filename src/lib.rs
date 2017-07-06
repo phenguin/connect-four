@@ -28,6 +28,7 @@ pub fn debug<T: fmt::Debug>(x: &T) {
 mod tests {
     use super::*;
     use super::strategies::*;
+    use super::strategies::negamax::*;
     use super::game::*;
     use super::game::connectfour::*;
     use test::Bencher;
@@ -50,7 +51,7 @@ mod tests {
 
     #[bench]
     fn bench_random_outcome(b: &mut Bencher) {
-        use rand::{XorShiftRng, SeedableRng};
+        use rand::XorShiftRng;
         let game = ConnectFour::new(&Color::R);
         let mut rng: XorShiftRng = rand::SeedableRng::from_seed([5, 5, 5, 5]);
         b.iter(move || game.random_outcome(&mut rng));

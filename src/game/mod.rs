@@ -52,25 +52,25 @@ pub trait RandGame: Game + Clone {
         })
     }
 
-    fn random_outcome<R: Rng>(&self, rng: &mut R) -> Option<Self::Agent> {
-        let mut game = self.clone();
+    fn random_outcome<R: Rng>(mut self, rng: &mut R) -> Option<Self::Agent> {
 
-        while !game.has_winner() {
-            match game.random_move(rng) {
+        while !self.has_winner() {
+            match self.random_move(rng) {
                 None => return None,
                 Some(m) => m.apply(),
             }
-            if game.has_winner() {
-                return game.winner();
+            if self.has_winner() {
+                return self.winner();
             }
         }
         None
     }
 
-    fn monte_carlo<R: Rng>(&self, rng: &mut R, trials: u32) -> u32 {
+    fn monte_carlo<R: Rng>(self, rng: &mut R, trials: u32) -> u32 {
+
         let ref_player = self.ref_player();
         (0..trials)
-            .flat_map(move |_| self.random_outcome(rng))
+            .flat_map(|_| (&self).clone().random_outcome(rng))
             .filter(move |c| *c == ref_player)
             .map(|_| 1)
             .sum()
@@ -144,4 +144,3 @@ pub trait Game: Clone + Send {
             .collect()
     }
 }
-

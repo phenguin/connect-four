@@ -33,7 +33,7 @@ fn do_main() {
     // do_test(depth, trials);
 
     use game::connectfour::ConnectFour;
-    use gameai::strategies::*;
+    use gameai::strategies::negamax::*;
     use runner::AIPlayer;
     let mut human = runner::HumanPlayer::new("Justin");
     let mut pc = AIPlayer::<ConnectFour, Negamax<ConnectFour>>::new("IRobot",
