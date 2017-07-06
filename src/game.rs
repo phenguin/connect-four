@@ -150,7 +150,7 @@ pub mod connectfour {
     use rand;
     use std::fmt;
     use std::clone::Clone;
-    use super::{Game, RandGame, ParseGame, Score, ValidMove};
+    use super::*;
     use std::str::FromStr;
 
     const HEIGHT: usize = 6;
@@ -281,7 +281,27 @@ pub mod connectfour {
         }
     }
 
-    impl RandGame for ConnectFour {}
+    impl RandGame for ConnectFour {
+        fn random_move<R: rand::Rng>(&mut self, rng: &mut R) -> Option<ValidMoveMut<Self>> {
+            let mut is = [0; WIDTH];
+            for (i, r) in is.iter_mut().enumerate() {
+                *r = i;
+            }
+            rng.shuffle(&mut is);
+
+            let to_act = self.to_act();
+            for &i in &is {
+                let m = (i, to_act);
+                if self.move_valid(&m) {
+                    return Some(ValidMoveMut {
+                        valid_move: m,
+                        valid_for: self,
+                    });
+                }
+            }
+            None
+        }
+    }
 
     impl Game for ConnectFour {
         type Move = (usize, Self::Agent);
