@@ -37,16 +37,16 @@ mod tests {
         assert_eq!(4, 2 + 2);
     }
 
-    // #[bench]
-    // fn bench_negamax(b: &mut Bencher) {
-    //     b.iter(|| {
-    //         let mut strategy = Negamax::create(NegamaxParams {
-    //             max_depth: 3,
-    //             trials: 10,
-    //         });
-    //         debug(&strategy.decide(&ConnectFour::new(&Color::R)));
-    //     });
-    // }
+    #[bench]
+    fn bench_negamax(b: &mut Bencher) {
+        b.iter(|| {
+            let mut strategy = Negamax::create(NegamaxParams {
+                max_depth: 3,
+                trials: 5,
+            });
+            strategy.decide(&ConnectFour::new(&Color::R));
+        });
+    }
 
     #[bench]
     fn bench_random_outcome(b: &mut Bencher) {

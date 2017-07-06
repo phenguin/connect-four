@@ -42,7 +42,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Slot {
     Empty,
     Full(Color),
@@ -74,7 +74,7 @@ impl fmt::Display for Slot {
     }
 }
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, PartialEq, Eq)]
 struct C4Board {
     board: [[Slot; WIDTH]; HEIGHT],
 }
@@ -113,7 +113,7 @@ impl fmt::Display for C4Board {
     }
 }
 
-#[derive(Hash, Clone, Debug)]
+#[derive(Hash, Clone, Debug, PartialEq, Eq)]
 pub struct ConnectFour {
     state: C4Board,
     to_act: Color,
