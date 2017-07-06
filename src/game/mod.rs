@@ -1,4 +1,5 @@
 pub mod connectfour;
+pub mod dots;
 
 #[derive(Hash, Clone)]
 pub struct ValidMove<G: Game> {
@@ -131,16 +132,15 @@ pub trait Game: Clone + Send {
     fn try_move(&mut self, m: Self::Move) -> bool {
         let x = self.clone().verify_move(m);
         x.map(move |valid_move| {
-                let new_board = valid_move.apply();
-                *self = new_board;
-            })
-            .is_some()
+            let new_board = valid_move.apply();
+            *self = new_board;
+        }).is_some()
     }
 
     fn try_moves<I>(&mut self, moves: I) -> Vec<bool>
-        where I: Iterator<Item = Self::Move>
+    where
+        I: Iterator<Item = Self::Move>,
     {
-        moves.map(move |m| self.try_move(m))
-            .collect()
+        moves.map(move |m| self.try_move(m)).collect()
     }
 }

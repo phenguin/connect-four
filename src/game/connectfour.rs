@@ -56,12 +56,14 @@ impl Slot {
 
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "{}",
-               match *self {
-                   Color::R => "X",
-                   Color::B => "@",
-               })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Color::R => "X",
+                Color::B => "@",
+            }
+        )
     }
 }
 
@@ -258,7 +260,8 @@ impl Game for ConnectFour {
         for j in 0..HEIGHT - (NEEDED - 1) {
             for i in 0..WIDTH {
                 if get(i, j) == color && get(i, j + 1) == color && get(i, j + 2) == color &&
-                   get(i, j + 3) == color {
+                    get(i, j + 3) == color
+                {
                     return true;
                 }
             }
@@ -267,7 +270,8 @@ impl Game for ConnectFour {
         for i in 0..WIDTH - (NEEDED - 1) {
             for j in 0..HEIGHT {
                 if get(i, j) == color && get(i + 1, j) == color && get(i + 2, j) == color &&
-                   get(i + 3, j) == color {
+                    get(i + 3, j) == color
+                {
                     return true;
                 }
             }
@@ -277,7 +281,8 @@ impl Game for ConnectFour {
         for i in 3..WIDTH {
             for j in 0..HEIGHT - (NEEDED - 1) {
                 if get(i, j) == color && get(i - 1, j + 1) == color &&
-                   get(i - 2, j + 2) == color && get(i - 3, j + 3) == color {
+                    get(i - 2, j + 2) == color && get(i - 3, j + 3) == color
+                {
                     return true;
                 }
             }
@@ -286,7 +291,8 @@ impl Game for ConnectFour {
         for i in 3..WIDTH {
             for j in 3..HEIGHT {
                 if get(i, j) == color && get(i - 1, j - 1) == color &&
-                   get(i - 2, j - 2) == color && get(i - 3, j - 3) == color {
+                    get(i - 2, j - 2) == color && get(i - 3, j - 3) == color
+                {
                     return true;
                 }
             }
