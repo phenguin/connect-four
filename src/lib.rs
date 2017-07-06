@@ -28,7 +28,6 @@ pub fn debug<T: fmt::Debug>(x: &T) {
 mod tests {
     use super::*;
     use super::strategies::*;
-    use super::strategies::Node;
     use super::game::*;
     use super::game::connectfour::*;
     use test::Bencher;

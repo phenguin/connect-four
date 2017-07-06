@@ -1,4 +1,4 @@
-use game::{Game, ParseGame};
+use game::{RandGame, Game, ParseGame};
 use std::fmt;
 use std::io;
 use rand;
@@ -68,15 +68,18 @@ impl<G> Player<G> for HumanPlayer
     }
 }
 
-pub struct AIPlayer<G: Game> {
+use std::marker::PhantomData;
+pub struct AIPlayer<G: Game, S: Strategy<G>> {
     name: String,
-    strategy: Negamax<G>,
+    strategy: S,
+    _phantom: PhantomData<G>,
 }
 
-impl<G> Player<G> for AIPlayer<G>
-    where G: Game + Send + fmt::Display,
+impl<G, S> Player<G> for AIPlayer<G, S>
+    where G: RandGame + Send + fmt::Display,
           G::Agent: Send,
-          G::Move: Send + Ord + fmt::Debug
+          G::Move: Send + Ord + fmt::Debug,
+          S: Strategy<G>
 {
     fn display_name(&self) -> &str {
         self.name.as_str()
@@ -94,14 +97,14 @@ impl<G> Player<G> for AIPlayer<G>
     }
 }
 
-impl<G: Game + fmt::Display> AIPlayer<G> {
-    pub fn new(name: &str, search_depth: usize, trials: usize) -> Self {
+impl<S, G: Game + fmt::Display> AIPlayer<G, S>
+    where S: Strategy<G>
+{
+    pub fn new(name: &str, params: S::Params) -> Self {
         AIPlayer {
             name: String::from(name),
-            strategy: Negamax::create(NegamaxParams {
-                max_depth: search_depth,
-                trials: trials,
-            }),
+            strategy: S::create(params),
+            _phantom: PhantomData,
         }
     }
 }

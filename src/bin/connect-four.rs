@@ -30,11 +30,17 @@ fn do_main() {
 
     let depth = value_t!(matches.value_of("depth"), usize).unwrap_or_else(|e| e.exit());
     let trials = value_t!(matches.value_of("trials"), usize).unwrap_or_else(|e| e.exit());
-
     // do_test(depth, trials);
 
+    use game::connectfour::ConnectFour;
+    use gameai::strategies::*;
+    use runner::AIPlayer;
     let mut human = runner::HumanPlayer::new("Justin");
-    let mut pc = runner::AIPlayer::<game::connectfour::ConnectFour>::new("IRobot", depth, trials);
+    let mut pc = AIPlayer::<ConnectFour, Negamax<ConnectFour>>::new("IRobot",
+                                                                    NegamaxParams {
+                                                                        max_depth: depth,
+                                                                        trials: trials,
+                                                                    });
     runner::Runner::run(&mut human, &mut pc);
 }
 
