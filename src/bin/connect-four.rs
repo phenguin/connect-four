@@ -43,7 +43,7 @@ fn do_main() {
                                                                     });
     let mut pc2 = AIPlayer::<ConnectFour, MCTS<ConnectFour>>::new("IRobot",
                                                                   MCTSParams {
-                                                                      timeout: 5000,
+                                                                      timeout: 2000,
                                                                       C: (2 as f64).sqrt(),
                                                                   });
     runner::Runner::run(&mut human, &mut pc2);

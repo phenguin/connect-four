@@ -123,6 +123,7 @@ impl<'a, G> Runner<'a, G>
           G::Move: Send + Ord
 {
     pub fn new(p1: Plr<'a, G>, p2: Plr<'a, G>) -> Self {
+        // Self::new_with_first_to_act(rand::random::<G::Agent>(), p1, p2)
         Self::new_with_first_to_act(rand::random::<G::Agent>(), p1, p2)
     }
 
@@ -165,7 +166,7 @@ impl<'a, G> Runner<'a, G>
             self.step()
         }
 
-        let winner = self.winner.unwrap();
+        let winner = self.board.winner().unwrap();
         println!("Winner is: {}", winner);
     }
 
