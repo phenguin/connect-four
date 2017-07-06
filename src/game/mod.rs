@@ -90,6 +90,10 @@ pub trait Game: Clone + Send {
     fn new(&Self::Agent) -> Self;
     fn possible_moves(&self) -> Vec<ValidMove<Self>>;
 
+    fn move_valid(&self, &Self::Move) -> bool;
+    fn has_won(&self, agent: &Self::Agent) -> bool;
+    fn apply(&mut self, Self::Move);
+
     fn try_move_mut(&mut self, m: Self::Move) -> bool {
         self.verify_move_mut(m).map(|m| m.apply()).is_some()
     }
@@ -119,15 +123,10 @@ pub trait Game: Clone + Send {
         })
     }
 
-    fn move_valid(&self, &Self::Move) -> bool;
-
-    fn has_won(&self, agent: &Self::Agent) -> bool;
-
     fn has_winner(&self) -> bool {
         self.winner().is_some()
     }
 
-    fn apply(&mut self, Self::Move);
 
     fn try_move(&mut self, m: Self::Move) -> bool {
         let x = self.clone().verify_move(m);

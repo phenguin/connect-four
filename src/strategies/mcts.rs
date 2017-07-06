@@ -83,7 +83,8 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 
         let i = state.rng.gen::<usize>();
         let random_choice = choices[i % n].clone().apply();
-        let games: Vec<_> = choices.into_iter()
+        let games: Vec<_> = choices
+            .into_iter()
             .flat_map(|m| {
                 let game = m.apply();
                 let stats = state.stats.get(&game);
@@ -92,14 +93,13 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
             .collect();
 
         if games.len() == n {
-            let x = games.into_iter()
-                .max_by(|t1, t2| {
-                    let s1 = t1.1;
-                    let s2 = t2.1;
-                    self.key(s1, parent_visits as f64)
-                        .partial_cmp(&self.key(s2, parent_visits as f64))
-                        .unwrap()
-                });
+            let x = games.into_iter().max_by(|t1, t2| {
+                let s1 = t1.1;
+                let s2 = t2.1;
+                self.key(s1, parent_visits as f64)
+                    .partial_cmp(&self.key(s2, parent_visits as f64))
+                    .unwrap()
+            });
             x.unwrap().0
         } else {
             random_choice
@@ -108,41 +108,40 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 }
 
 impl<G> Strategy<G> for MCTS<G>
-    where G: RandGame + fmt::Display + Hash + Eq
+where
+    G: RandGame + fmt::Display + Hash + Eq,
 {
     type Params = MCTSParams;
 
     fn decide(&mut self, game: &G) -> G::Move {
-        println!("Monte carlo pickin");
         {
             (*self.state.lock().unwrap()).cur = Some(game.clone());
         }
         thread::sleep_ms(self.params.timeout);
         let mut state = &self.state.lock().unwrap();
 
-        let nexts = game.possible_moves()
+        let nexts = game.possible_moves().into_iter().map(|m| {
+            let vm = *m.valid_move();
+            (vm, m.apply())
+        });
+
+        // let nexts2 = game.possible_moves()
+        //     .into_iter()
+        //     .map(|m| {
+        //         let vm = *m.valid_move();
+        //         (vm, m.apply())
+        //     });
+
+        // for (_, g) in nexts2 {
+        //     let s = state.stats.get(&g).unwrap();
+        //     println!("{:?}\nscore: {}\n{}",
+        //              s,
+        //              s.losses as f64 / s.visits as f64,
+        //              g);
+        // }
+
+        let (best, stats) = nexts
             .into_iter()
-            .map(|m| {
-                let vm = *m.valid_move();
-                (vm, m.apply())
-            });
-
-        let nexts2 = game.possible_moves()
-            .into_iter()
-            .map(|m| {
-                let vm = *m.valid_move();
-                (vm, m.apply())
-            });
-
-        for (_, g) in nexts2 {
-            let s = state.stats.get(&g).unwrap();
-            println!("{:?}\nscore: {}\n{}",
-                     s,
-                     s.losses as f64 / s.visits as f64,
-                     g);
-        }
-
-        let (best, stats) = nexts.into_iter()
             .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {
                 let s1 = t1.1;
@@ -172,17 +171,15 @@ impl<G> Strategy<G> for MCTS<G>
             params: params,
             state: state,
         };
-        thread::spawn(move || {
-            loop {
-                let game = {
-                    match it.state.lock().unwrap().cur.clone() {
-                        None => continue,
-                        Some(g) => g,
-                    }
-                };
+        thread::spawn(move || loop {
+            let game = {
+                match it.state.lock().unwrap().cur.clone() {
+                    None => continue,
+                    Some(g) => g,
+                }
+            };
 
-                it.simulate(&game);
-            }
+            it.simulate(&game);
         });
         new
 
