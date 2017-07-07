@@ -87,8 +87,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 
         let i = state.rng.gen::<usize>();
         let random_choice = choices[i % n].clone().apply();
-        let games: Vec<_> = choices
-            .into_iter()
+        let games: Vec<_> = choices.into_iter()
             .flat_map(|m| {
                 let game = m.apply();
                 let stats = state.stats.get(&game);
@@ -112,8 +111,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 }
 
 impl<G> Strategy<G> for MCTS<G>
-where
-    G: RandGame + fmt::Display + Hash + Eq,
+    where G: RandGame + fmt::Display + Hash + Eq
 {
     type Params = MCTSParams;
 
@@ -136,23 +134,18 @@ where
 
         for (_, g) in nexts2 {
             let s = state.stats.get(&g).unwrap();
-            println!(
-                "{:?}\nscore: {}\n{}",
-                s,
-                s.losses as f64 / s.visits as f64,
-                g
-            );
+            println!("{:?}\n{}", s, g);
         }
 
-        let (best, stats) = nexts
-            .into_iter()
+        let (best, stats) = nexts.into_iter()
             .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {
                 let s1 = t1.1;
                 let s2 = t2.1;
-                (s1.losses as f64 / s1.visits as f64)
-                    .partial_cmp(&(s2.losses as f64 / s2.visits as f64))
-                    .unwrap_or(Less)
+                s1.visits.cmp(&s2.visits)
+                // (s1.losses as f64 / s1.visits as f64)
+                //     .partial_cmp(&(s2.losses as f64 / s2.visits as f64))
+                //     .unwrap_or(Less)
             })
             .unwrap();
 
