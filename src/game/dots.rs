@@ -117,15 +117,22 @@ pub struct Dots {
     possible_moves: HashSet<DotsMove>,
 }
 
+impl Eq for Dots {}
+impl PartialEq for Dots {
+    fn eq(&self, other: &Self) -> bool {
+        self.board == other.board && self.to_act == other.to_act
+    }
+}
+
 impl fmt::Display for Dots {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Acting: {}, Scores: {:?}", self.to_act(), self.scores)?;
         writeln!(f, "{}", self.board)?;
         let mut moves: Vec<_> = self.possible_moves.iter().collect();
         moves.sort();
-        for m in &moves {
-            writeln!(f, "Move: {:?}", m)?;
-        }
+        // for m in &moves {
+        //     writeln!(f, "Move: {:?}", m)?;
+        // }
         writeln!(f, "Winner: {:?}", self.winner)
 
     }
@@ -350,7 +357,7 @@ impl Dots {
         for (checks, square) in conds {
             let got_square = checks.into_iter().all(|mv| {
                 let valid = !self.move_valid(&mv);
-                println!("square ({:?}) -- {:?}: {:?}", square, mv, valid);
+                // println!("square ({:?}) -- {:?}: {:?}", square, mv, valid);
                 valid
             });
             if got_square {

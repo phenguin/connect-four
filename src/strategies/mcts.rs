@@ -44,7 +44,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
                 let stats_cache = &self.state.lock().unwrap().stats;
                 stats_cache.get(game).map(|s| s.visits).unwrap_or(1)
             };
-            let g = self.select(nexts, parent_visits);
+            let g = self.select(nexts, parent_visits, acting);
             self.simulate(&g)
         };
 
@@ -67,13 +67,17 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
         winner
     }
 
-    fn key(&self, s: &Stats, n: f64) -> f64 {
-        let wins = s.losses as f64;
+    fn key(&self, (g, s): (&G, &Stats), n: f64, acting: G::Agent) -> f64 {
+        let wins = if acting == g.to_act() {
+            s.wins
+        } else {
+            s.losses
+        } as f64;
         let visits = s.visits as f64;
         wins / visits + self.params.c * (n.ln() / visits).sqrt()
     }
 
-    fn select(&self, choices: Vec<ValidMove<G>>, parent_visits: usize) -> G {
+    fn select(&self, choices: Vec<ValidMove<G>>, parent_visits: usize, acting: G::Agent) -> G {
         let n = choices.len();
         let mut state = self.state.lock().unwrap();
 
@@ -94,10 +98,10 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 
         if games.len() == n {
             let x = games.into_iter().max_by(|t1, t2| {
-                let s1 = t1.1;
-                let s2 = t2.1;
-                self.key(s1, parent_visits as f64)
-                    .partial_cmp(&self.key(s2, parent_visits as f64))
+                let t1 = (&t1.0, t1.1);
+                let t2 = (&t2.0, t2.1);
+                self.key(t1, parent_visits as f64, acting)
+                    .partial_cmp(&self.key(t2, parent_visits as f64, acting))
                     .unwrap()
             });
             x.unwrap().0
@@ -125,22 +129,22 @@ where
             (vm, m.apply())
         });
 
-        // let nexts2 = game.possible_moves()
-        //     .into_iter()
-        //     .map(|m| {
-        //         let vm = *m.valid_move();
-        //         (vm, m.apply())
-        //     });
+        let nexts2 = game.possible_moves().into_iter().map(|m| {
+            let vm = *m.valid_move();
+            (vm, m.apply())
+        });
 
-        // for (_, g) in nexts2 {
-        //     let s = state.stats.get(&g).unwrap();
-        //     println!("{:?}\nscore: {}\n{}",
-        //              s,
-        //              s.losses as f64 / s.visits as f64,
-        //              g);
-        // }
+        for (_, g) in nexts2 {
+            let s = state.stats.get(&g).unwrap();
+            println!(
+                "{:?}\nscore: {}\n{}",
+                s,
+                s.losses as f64 / s.visits as f64,
+                g
+            );
+        }
 
-        let (best, _) = nexts
+        let (best, stats) = nexts
             .into_iter()
             .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {
@@ -152,6 +156,7 @@ where
             })
             .unwrap();
 
+        println!("Best: {:?}", stats);
         best
     }
 
