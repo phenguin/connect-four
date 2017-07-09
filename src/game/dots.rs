@@ -6,6 +6,7 @@ use super::*;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::cmp::{Ord, Ordering};
 
 
 const HEIGHT: usize = 3;
@@ -46,14 +47,12 @@ impl DotsPlayer {
 
 impl fmt::Display for DotsPlayer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match *self {
-                A => "A",
-                B => "B",
-            }
-        )
+        write!(f,
+               "{}",
+               match *self {
+                   A => "A",
+                   B => "B",
+               })
     }
 }
 
@@ -231,11 +230,11 @@ impl Game for Dots {
         }
 
         if self.possible_moves().is_empty() {
-            if self.get_score(acting) > self.get_score(acting.flip()) {
-                (*self).winner = Some(acting);
-            } else {
-                // TODO Consider draw case.
-                (*self).winner = Some(acting.flip());
+            let other = acting.flip();
+            match self.get_score(acting).cmp(&self.get_score(other)) {
+                Ordering::Greater => (*self).winner = Some(acting),
+                Ordering::Less => (*self).winner = Some(other),
+                Ordering::Equal => (),
             }
         }
 
