@@ -8,3 +8,4 @@ pub trait Strategy<G: Game> {
 
 pub mod negamax;
 pub mod mcts;
+pub mod mcts_parallel;

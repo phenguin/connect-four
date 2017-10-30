@@ -16,39 +16,45 @@ struct Stats {
 
 use std::collections::HashMap;
 use std::hash::Hash;
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MCTSParams {
     // Time limit in ms.
     pub timeout: u64,
     pub c: f64,
+    pub workers: u64,
 }
 
-struct State<G: Hash + PartialEq + Eq> {
-    stats: HashMap<G, Stats>,
-    cur: Option<G>,
-    rng: XorShiftRng,
-}
-pub struct MCTS<G: Hash + Eq + RandGame + 'static> {
+// struct State<G: Hash + PartialEq + Eq> {
+//     stats: HashMap<G, Stats>,
+//     cur: Option<G>,
+// }
+
+struct MCTSInner<G: Sync + Hash + Eq + RandGame + 'static> {
     params: MCTSParams,
-    state: Arc<Mutex<State<G>>>,
+    stats: Arc<Mutex<HashMap<G, Stats>>>,
+    cur: Arc<RwLock<Option<G>>>,
 }
 
-impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
-    fn simulate(&self, game: &G) -> Option<G::Agent> {
+pub struct MCTS<G: Sync + Hash + Eq + RandGame + 'static> {
+    inner: Arc<MCTSInner<G>>,
+}
+
+impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSInner<G> {
+    fn simulate<R: rand::Rng>(&self, rng: &mut R, game: &G) -> Option<G::Agent> {
         let acting = game.to_act();
         let nexts = game.possible_moves();
         let winner = if nexts.is_empty() {
             game.winner()
         } else {
             let parent_visits = {
-                let stats_cache = &self.state.lock().unwrap().stats;
+                let stats_cache = self.stats.lock().unwrap();
                 stats_cache.get(game).map(|s| s.visits).unwrap_or(1)
             };
-            let g = self.select(nexts, parent_visits, acting);
-            self.simulate(&g)
+            let g = self.select(rng, nexts, parent_visits, acting);
+            self.simulate(rng, &g)
         };
 
-        let mut stats_cache = &mut self.state.lock().unwrap().stats;
+        let mut stats_cache = &mut self.stats.lock().unwrap();
         let stats = stats_cache.entry(game.clone()).or_insert(Stats {
             wins: 0,
             losses: 0,
@@ -77,20 +83,27 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
         wins / visits + self.params.c * (n.ln() / visits).sqrt()
     }
 
-    fn select(&self, choices: Vec<ValidMove<G>>, parent_visits: usize, acting: G::Agent) -> G {
+    fn select<R: rand::Rng>(
+        &self,
+        rng: &mut R,
+        choices: Vec<ValidMove<G>>,
+        parent_visits: usize,
+        acting: G::Agent,
+    ) -> G {
         let n = choices.len();
-        let mut state = self.state.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap();
 
         if choices.is_empty() {
             panic!("Shouldn't have gotten here.")
         }
 
-        let i = state.rng.gen::<usize>();
+        let i = rng.gen::<usize>();
         let random_choice = choices[i % n].clone().apply();
-        let games: Vec<_> = choices.into_iter()
+        let games: Vec<_> = choices
+            .into_iter()
             .flat_map(|m| {
                 let game = m.apply();
-                let stats = state.stats.get(&game);
+                let stats = stats.get(&game);
                 stats.map(|s| (game, s))
             })
             .collect();
@@ -110,17 +123,40 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
     }
 }
 
-impl<G> Strategy<G> for MCTS<G>
-    where G: RandGame + fmt::Display + Hash + Eq
+impl<G> MCTS<G>
+where
+    G: RandGame + fmt::Display + Hash + Eq + Sync + Send,
+{
+    fn start_worker(&self) {
+        let mcts = self.inner.clone();
+        thread::spawn(move || {
+            let seed = rand::random::<[u32; 4]>();
+            let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
+            loop {
+                let game = {
+                    match mcts.cur.read().unwrap().clone() {
+                        None => continue,
+                        Some(g) => g,
+                    }
+                };
+                mcts.simulate(&mut rng, &game);
+            }
+        });
+    }
+}
+
+impl<G: Sync> Strategy<G> for MCTS<G>
+where
+    G: RandGame + fmt::Display + Hash + Eq,
 {
     type Params = MCTSParams;
 
     fn decide(&mut self, game: &G) -> G::Move {
         {
-            (*self.state.lock().unwrap()).cur = Some(game.clone());
+            *(self.inner.cur.write().unwrap()) = Some(game.clone());
         }
-        thread::sleep(Duration::from_millis(self.params.timeout));
-        let state = &self.state.lock().unwrap();
+        thread::sleep(Duration::from_millis(self.inner.params.timeout));
+        let stats = &self.inner.stats.lock().unwrap();
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
@@ -133,12 +169,13 @@ impl<G> Strategy<G> for MCTS<G>
         });
 
         for (_, g) in nexts2 {
-            let s = state.stats.get(&g).unwrap();
+            let s = stats.get(&g).unwrap();
             println!("{:?}\n{}", s, g);
         }
 
-        let (best, stats) = nexts.into_iter()
-            .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
+        let (best, stats) = nexts
+            .into_iter()
+            .flat_map(|(m, g)| stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {
                 let s1 = t1.1;
                 let s2 = t2.1;
@@ -154,32 +191,15 @@ impl<G> Strategy<G> for MCTS<G>
     }
 
     fn create(params: MCTSParams) -> Self {
-        let seed = rand::random::<[u32; 4]>();
-        let rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
-        let state = Arc::new(Mutex::new(State {
-            cur: None,
-            stats: HashMap::new(),
-            rng: rng,
-        }));
-        let new = Self {
-            params: params.clone(),
-            state: state.clone(),
-        };
-        let it = Self {
+        let inner = Arc::new(MCTSInner {
+            cur: Arc::new(RwLock::new(None)),
+            stats: Arc::new(Mutex::new(HashMap::new())),
             params: params,
-            state: state,
-        };
-        thread::spawn(move || loop {
-            let game = {
-                match it.state.lock().unwrap().cur.clone() {
-                    None => continue,
-                    Some(g) => g,
-                }
-            };
-
-            it.simulate(&game);
         });
+        let new = MCTS { inner: inner };
+        for _ in 0..params.workers {
+            new.start_worker();
+        }
         new
-
     }
 }
