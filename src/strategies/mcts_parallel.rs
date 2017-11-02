@@ -29,33 +29,57 @@ pub struct MCTSParams {
 //     cur: Option<G>,
 // }
 
-struct MCTSInner<G: Sync + Hash + Eq + RandGame + 'static> {
+enum WorkerMessage<G: Send> {
+    UpdateStats(HashMap<G, Stats>),
+    UpdateCur(Option<G>),
+}
+
+struct MCTSWorker<G: Sync + Hash + Eq + RandGame + 'static> {
+    input: mpsc::Receiver<WorkerMessage<G>>,
     params: MCTSParams,
-    stats: Arc<Mutex<HashMap<G, Stats>>>,
-    cur: Arc<RwLock<Option<G>>>,
+    updates: HashMap<G, Stats>,
+    stats_cache: HashMap<G, Stats>,
+    cur: Option<G>,
 }
 
 pub struct MCTS<G: Sync + Hash + Eq + RandGame + 'static> {
-    inner: Arc<MCTSInner<G>>,
+    params: MCTSParams,
+    stats: Arc<Mutex<HashMap<G, Stats>>>,
+    cur: Option<G>,
+    workers: Vec<mpsc::Sender<WorkerMessage<G>>>,
+    // merger: mpsc::Sender
 }
 
-impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSInner<G> {
-    fn simulate<R: rand::Rng>(&self, rng: &mut R, game: &G) -> Option<G::Agent> {
+impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
+    fn simulate<R: rand::Rng>(&mut self, rng: &mut R, game: &G) -> Option<G::Agent> {
         let acting = game.to_act();
         let nexts = game.possible_moves();
         let winner = if nexts.is_empty() {
             game.winner()
         } else {
             let parent_visits = {
-                let stats_cache = self.stats.lock().unwrap();
-                stats_cache.get(game).map(|s| s.visits).unwrap_or(1)
+                self.stats_cache.get(game).map(|s| s.visits).unwrap_or(1)
             };
             let g = self.select(rng, nexts, parent_visits, acting);
             self.simulate(rng, &g)
         };
 
-        let mut stats_cache = &mut self.stats.lock().unwrap();
-        let stats = stats_cache.entry(game.clone()).or_insert(Stats {
+        let stats = self.stats_cache.entry(game.clone()).or_insert(Stats {
+            wins: 0,
+            losses: 0,
+            visits: 0,
+        });
+
+        stats.visits += 1;
+        if let Some(w) = winner {
+            if w == acting {
+                stats.wins += 1;
+            } else {
+                stats.losses += 1;
+            }
+        }
+
+        let stats = self.updates.entry(game.clone()).or_insert(Stats {
             wins: 0,
             losses: 0,
             visits: 0,
@@ -91,7 +115,6 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSInner<G> {
         acting: G::Agent,
     ) -> G {
         let n = choices.len();
-        let mut stats = self.stats.lock().unwrap();
 
         if choices.is_empty() {
             panic!("Shouldn't have gotten here.")
@@ -103,7 +126,7 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSInner<G> {
             .into_iter()
             .flat_map(|m| {
                 let game = m.apply();
-                let stats = stats.get(&game);
+                let stats = self.stats_cache.get(&game);
                 stats.map(|s| (game, s))
             })
             .collect();
@@ -121,28 +144,40 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSInner<G> {
             random_choice
         }
     }
+
+    fn handle_message(&mut self, msg: WorkerMessage<G>) {
+        use self::WorkerMessage::*;
+        match msg {
+            UpdateStats(stats) => self.stats_cache = stats,
+            UpdateCur(cur) => self.cur = cur,
+        }
+    }
+
+    fn start_worker(mut self) {
+        thread::spawn(move || {
+            let seed = rand::random::<[u32; 4]>();
+            let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
+            loop {
+                if let Ok(msg) = self.input.try_recv() {
+                    self.handle_message(msg);
+                }
+
+                let game = {
+                    match self.cur {
+                        None => continue,
+                        Some(ref g) => g.clone(),
+                    }
+                };
+                self.simulate(&mut rng, &game);
+            }
+        });
+    }
 }
 
 impl<G> MCTS<G>
 where
     G: RandGame + fmt::Display + Hash + Eq + Sync + Send,
 {
-    fn start_worker(&self) {
-        let mcts = self.inner.clone();
-        thread::spawn(move || {
-            let seed = rand::random::<[u32; 4]>();
-            let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
-            loop {
-                let game = {
-                    match mcts.cur.read().unwrap().clone() {
-                        None => continue,
-                        Some(g) => g,
-                    }
-                };
-                mcts.simulate(&mut rng, &game);
-            }
-        });
-    }
 }
 
 impl<G: Sync> Strategy<G> for MCTS<G>
@@ -152,11 +187,11 @@ where
     type Params = MCTSParams;
 
     fn decide(&mut self, game: &G) -> G::Move {
-        {
-            *(self.inner.cur.write().unwrap()) = Some(game.clone());
+        for tx in &self.workers {
+            tx.send(WorkerMessage::UpdateCur(Some(game.clone())));
         }
-        thread::sleep(Duration::from_millis(self.inner.params.timeout));
-        let stats = &self.inner.stats.lock().unwrap();
+        thread::sleep(Duration::from_millis(self.params.timeout));
+        let stats = &self.stats.lock().unwrap();
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
@@ -191,14 +226,24 @@ where
     }
 
     fn create(params: MCTSParams) -> Self {
-        let inner = Arc::new(MCTSInner {
-            cur: Arc::new(RwLock::new(None)),
-            stats: Arc::new(Mutex::new(HashMap::new())),
+        let mut new = MCTS {
             params: params,
-        });
-        let new = MCTS { inner: inner };
+            stats: Arc::new(Mutex::new(HashMap::new())),
+            cur: None,
+            workers: Vec::new(),
+        };
+
         for _ in 0..params.workers {
-            new.start_worker();
+            let (tx, rx) = mpsc::channel();
+            let worker = MCTSWorker {
+                input: rx,
+                cur: None,
+                stats_cache: HashMap::new(),
+                updates: HashMap::new(),
+                params: params.clone(),
+            };
+            new.workers.push(tx);
+            worker.start_worker();
         }
         new
     }
