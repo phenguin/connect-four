@@ -47,12 +47,14 @@ impl DotsPlayer {
 
 impl fmt::Display for DotsPlayer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "{}",
-               match *self {
-                   A => "A",
-                   B => "B",
-               })
+        write!(
+            f,
+            "{}",
+            match *self {
+                A => "A",
+                B => "B",
+            }
+        )
     }
 }
 
@@ -373,7 +375,7 @@ impl Dots {
         }
     }
     fn inc_score(&mut self, a: DotsPlayer) {
-        let mut it = match a {
+        let it = match a {
             DotsPlayer::A => &mut self.scores.0,
             DotsPlayer::B => &mut self.scores.1,
         };

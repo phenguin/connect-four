@@ -28,6 +28,7 @@ struct State<G: Hash + PartialEq + Eq> {
     cur: Option<G>,
     rng: XorShiftRng,
 }
+
 pub struct MCTS<G: Hash + Eq + RandGame + 'static> {
     params: MCTSParams,
     state: Arc<Mutex<State<G>>>,
@@ -48,7 +49,7 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
             self.simulate(&g)
         };
 
-        let mut stats_cache = &mut self.state.lock().unwrap().stats;
+        let stats_cache = &mut self.state.lock().unwrap().stats;
         let stats = stats_cache.entry(game.clone()).or_insert(Stats {
             wins: 0,
             losses: 0,
@@ -87,7 +88,8 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 
         let i = state.rng.gen::<usize>();
         let random_choice = choices[i % n].clone().apply();
-        let games: Vec<_> = choices.into_iter()
+        let games: Vec<_> = choices
+            .into_iter()
             .flat_map(|m| {
                 let game = m.apply();
                 let stats = state.stats.get(&game);
@@ -111,7 +113,8 @@ impl<G: RandGame + Eq + Hash + 'static> MCTS<G> {
 }
 
 impl<G> Strategy<G> for MCTS<G>
-    where G: RandGame + fmt::Display + Hash + Eq
+where
+    G: RandGame + fmt::Display + Hash + Eq,
 {
     type Params = MCTSParams;
 
@@ -127,17 +130,18 @@ impl<G> Strategy<G> for MCTS<G>
             (vm, m.apply())
         });
 
-        let nexts2 = game.possible_moves().into_iter().map(|m| {
-            let vm = *m.valid_move();
-            (vm, m.apply())
-        });
+        // let nexts2 = game.possible_moves().into_iter().map(|m| {
+        //     let vm = *m.valid_move();
+        //     (vm, m.apply())
+        // });
 
-        for (_, g) in nexts2 {
-            let s = state.stats.get(&g).unwrap();
-            println!("{:?}\n{}", s, g);
-        }
+        // for (_, g) in nexts2 {
+        //     let s = state.stats.get(&g).unwrap();
+        //     println!("{:?}\n{}", s, g);
+        // }
 
-        let (best, stats) = nexts.into_iter()
+        let (best, stats) = nexts
+            .into_iter()
             .flat_map(|(m, g)| state.stats.get(&g).map(|s| (m, s)))
             .max_by(|t1, t2| {
                 let s1 = t1.1;

@@ -93,7 +93,7 @@ where
     }
 
     fn choose_move(&mut self, board: &G) -> G::Move {
-        println!("Computer is thinking.....");
+        println!("{} is thinking.....", self.name);
         let m = self.strategy.decide(board);
         println!("CHOSE MOVE: {:?}", m);
         m

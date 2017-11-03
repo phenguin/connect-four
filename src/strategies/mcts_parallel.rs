@@ -1,6 +1,6 @@
 use super::*;
 use game::*;
-use rand::{Rng, XorShiftRng};
+use rand::XorShiftRng;
 use rand;
 use std::fmt;
 use std::sync::*;
@@ -22,6 +22,8 @@ pub struct MCTSParams {
     pub timeout: u64,
     pub c: f64,
     pub workers: u64,
+    pub worker_batch_size: u64,
+    pub merger_batch_size: u64,
 }
 
 // struct State<G: Hash + PartialEq + Eq> {
@@ -36,17 +38,79 @@ enum WorkerMessage<G: Send> {
 
 struct MCTSWorker<G: Sync + Hash + Eq + RandGame + 'static> {
     input: mpsc::Receiver<WorkerMessage<G>>,
+    merger: mpsc::Sender<MergerMessage<G>>,
     params: MCTSParams,
     updates: HashMap<G, Stats>,
     stats_cache: HashMap<G, Stats>,
     cur: Option<G>,
 }
 
+enum MergerMessage<G> {
+    GetStats(mpsc::Sender<HashMap<G, Stats>>),
+    Merge(HashMap<G, Stats>),
+}
+
+struct MCTSMerger<G: Send> {
+    pub input: mpsc::Receiver<MergerMessage<G>>,
+    worker_outputs: Vec<mpsc::Sender<WorkerMessage<G>>>,
+    params: MCTSParams,
+    stats: HashMap<G, Stats>,
+}
+
+impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
+    fn new(
+        params: MCTSParams,
+        outputs: Vec<mpsc::Sender<WorkerMessage<G>>>,
+        input: mpsc::Receiver<MergerMessage<G>>,
+    ) -> Self {
+        let new = MCTSMerger {
+            params: params,
+            input: input,
+            stats: HashMap::new(),
+            worker_outputs: outputs,
+        };
+        new
+    }
+
+    fn start(mut self) {
+        thread::spawn(move || loop {
+            for _ in 0..self.params.merger_batch_size {
+                let msg = self.input.recv().expect("Recv failed.");
+                self.handle_message(msg);
+            }
+
+            for tx in &self.worker_outputs {
+                tx.send(WorkerMessage::UpdateStats(self.stats.clone()))
+                    .expect("UpdateStats failed.");
+            }
+        });
+    }
+
+    fn handle_message(&mut self, msg: MergerMessage<G>) {
+        use self::MergerMessage::*;
+        match msg {
+            GetStats(tx) => tx.send(self.stats.clone()).expect("GetStats failed."),
+            Merge(updates) => {
+                for (k, v) in updates.into_iter() {
+                    let mut stats = self.stats.entry(k).or_insert(Stats {
+                        visits: 0,
+                        wins: 0,
+                        losses: 0,
+                    });
+
+                    stats.visits += v.visits;
+                    stats.wins += v.wins;
+                    stats.losses += v.losses;
+                }
+            }
+        }
+    }
+}
+
 pub struct MCTS<G: Sync + Hash + Eq + RandGame + 'static> {
     params: MCTSParams,
-    stats: Arc<Mutex<HashMap<G, Stats>>>,
-    cur: Option<G>,
     workers: Vec<mpsc::Sender<WorkerMessage<G>>>,
+    merger: mpsc::Sender<MergerMessage<G>>,
     // merger: mpsc::Sender
 }
 
@@ -137,9 +201,9 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
                 let t2 = (&t2.0, t2.1);
                 self.key(t1, parent_visits as f64, acting)
                     .partial_cmp(&self.key(t2, parent_visits as f64, acting))
-                    .unwrap()
+                    .expect("2")
             });
-            x.unwrap().0
+            x.expect("1").0
         } else {
             random_choice
         }
@@ -148,27 +212,43 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
     fn handle_message(&mut self, msg: WorkerMessage<G>) {
         use self::WorkerMessage::*;
         match msg {
-            UpdateStats(stats) => self.stats_cache = stats,
+            UpdateStats(stats) => {
+                // self.flush_updates();
+                self.stats_cache = stats;
+            }
             UpdateCur(cur) => self.cur = cur,
         }
     }
 
-    fn start_worker(mut self) {
+    fn flush_updates(&mut self) {
+        use std::mem;
+        self.merger
+            .send(MergerMessage::Merge(
+                mem::replace(&mut self.updates, HashMap::new()),
+            ))
+            .expect("Couldn't flush updates.");
+    }
+
+    fn start(mut self) {
         thread::spawn(move || {
             let seed = rand::random::<[u32; 4]>();
             let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
             loop {
-                if let Ok(msg) = self.input.try_recv() {
-                    self.handle_message(msg);
+                for _ in 0..self.params.worker_batch_size {
+                    if let Ok(msg) = self.input.try_recv() {
+                        self.handle_message(msg);
+                    }
+
+                    let game = {
+                        match self.cur {
+                            None => continue,
+                            Some(ref g) => g.clone(),
+                        }
+                    };
+                    self.simulate(&mut rng, &game);
                 }
 
-                let game = {
-                    match self.cur {
-                        None => continue,
-                        Some(ref g) => g.clone(),
-                    }
-                };
-                self.simulate(&mut rng, &game);
+                self.flush_updates();
             }
         });
     }
@@ -188,25 +268,30 @@ where
 
     fn decide(&mut self, game: &G) -> G::Move {
         for tx in &self.workers {
-            tx.send(WorkerMessage::UpdateCur(Some(game.clone())));
+            tx.send(WorkerMessage::UpdateCur(Some(game.clone())))
+                .expect("UpdateCur failed.");
         }
         thread::sleep(Duration::from_millis(self.params.timeout));
-        let stats = &self.stats.lock().unwrap();
+        let (tx, rx) = mpsc::channel();
+        self.merger.send(MergerMessage::GetStats(tx)).expect(
+            "GetStats request didn't send",
+        );
+        let stats = rx.recv().expect("Couldn't get stats.");
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
             (vm, m.apply())
         });
 
-        let nexts2 = game.possible_moves().into_iter().map(|m| {
-            let vm = *m.valid_move();
-            (vm, m.apply())
-        });
+        // let nexts2 = game.possible_moves().into_iter().map(|m| {
+        //     let vm = *m.valid_move();
+        //     (vm, m.apply())
+        // });
 
-        for (_, g) in nexts2 {
-            let s = stats.get(&g).unwrap();
-            println!("{:?}\n{}", s, g);
-        }
+        // for (_, g) in nexts2 {
+        //     let s = stats.get(&g).unwrap();
+        //     println!("{:?}\n{}", s, g);
+        // }
 
         let (best, stats) = nexts
             .into_iter()
@@ -219,32 +304,39 @@ where
                 //     .partial_cmp(&(s2.losses as f64 / s2.visits as f64))
                 //     .unwrap_or(Less)
             })
-            .unwrap();
+            .expect("3");
 
         println!("Best: {:?}", stats);
         best
     }
 
     fn create(params: MCTSParams) -> Self {
-        let mut new = MCTS {
-            params: params,
-            stats: Arc::new(Mutex::new(HashMap::new())),
-            cur: None,
-            workers: Vec::new(),
-        };
 
+        let mut workers = Vec::new();
+
+        let (merger_tx, merger_rx) = mpsc::channel();
         for _ in 0..params.workers {
             let (tx, rx) = mpsc::channel();
             let worker = MCTSWorker {
                 input: rx,
+                merger: merger_tx.clone(),
                 cur: None,
                 stats_cache: HashMap::new(),
                 updates: HashMap::new(),
                 params: params.clone(),
             };
-            new.workers.push(tx);
-            worker.start_worker();
+            workers.push(tx);
+            worker.start();
         }
+
+        let merger = MCTSMerger::new(params.clone(), workers.clone(), merger_rx);
+        merger.start();
+        let new = MCTS {
+            params: params,
+            workers: workers,
+            merger: merger_tx,
+        };
+
         new
     }
 }
