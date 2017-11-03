@@ -143,7 +143,7 @@ impl fmt::Display for ConnectFour {
 
 impl ParseGame for ConnectFour {
     fn parse_move(&self, input: &str) -> Option<Self::Move> {
-        usize::from_str(input).ok().map(|n| (n, self.to_act()))
+        usize::from_str(input).ok().map(|n| (n-1, self.to_act()))
     }
 }
 

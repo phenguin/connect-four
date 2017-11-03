@@ -37,7 +37,7 @@ fn do_main() {
                 .short("wb")
                 .value_name("UINT")
                 .long("worker_batch_size")
-                .default_value("5000")
+                .default_value("200")
                 .help("Batch size for workers.")
                 .takes_value(true),
         )
@@ -46,7 +46,7 @@ fn do_main() {
                 .short("wm")
                 .value_name("UINT")
                 .long("merger_batch_size")
-                .default_value("1000")
+                .default_value("100")
                 .help("Batch size for mergers.")
                 .takes_value(true),
         )
@@ -55,7 +55,7 @@ fn do_main() {
                 .short("i")
                 .value_name("UINT")
                 .long("min_flush_interval")
-                .default_value("1000")
+                .default_value("100")
                 .help("Minimum time in between worker stats flushes.")
                 .takes_value(true),
         )
@@ -65,7 +65,7 @@ fn do_main() {
                 .value_name("UINT")
                 .long("merger_queue_bound")
                 .help("Max length of the merger input channel of updates.")
-                .default_value("100")
+                .default_value("200")
                 .takes_value(true),
         )
         .get_matches();
@@ -105,7 +105,7 @@ fn do_main() {
             c: (2.0 as f64).sqrt(),
         },
     );
-    runner::Runner::run(&mut pc1, &mut pc2);
+    runner::Runner::run(&mut human, &mut pc2);
 }
 
 fn main() {
