@@ -1,7 +1,9 @@
 [package]
 name = "gameai"
-version = "0.1.1"
+version = "0.0.2"
+description = "Library with various types of game ai for learning."
 authors = ["Justin Cullen <jcullen@alum.mit.edu>"]
+license = "MIT"
 
 [dependencies]
 clap = "*"
