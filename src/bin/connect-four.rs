@@ -47,6 +47,23 @@ fn do_main() {
                 .help("Batch size for mergers.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("min_flush_interval")
+                .short("i")
+                .value_name("UINT")
+                .long("min_flush_interval")
+                .help("Minimum time in between worker stats flushes.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("merger_queue_bound")
+                .short("i")
+                .value_name("UINT")
+                .long("merger_queue_bound")
+                .help("Max length of the merger input channel of updates.")
+                .default_value("10000")
+                .takes_value(true),
+        )
         .get_matches();
 
     let timeout = value_t!(matches.value_of("timeout"), u64).unwrap_or_else(|e| e.exit());
@@ -55,26 +72,31 @@ fn do_main() {
         .unwrap_or_else(|e| e.exit());
     let merger_batch_size = value_t!(matches.value_of("worker_batch_size"), u64)
         .unwrap_or_else(|e| e.exit());
+    let min_flush_interval = value_t!(matches.value_of("min_flush_interval"), u64)
+        .unwrap_or_else(|e| e.exit());
+    let merger_queue_bound = value_t!(matches.value_of("merger_queue_bound"), usize)
+        .unwrap_or_else(|e| e.exit());
 
     use game::connectfour::ConnectFour;
-    use gameai::strategies::negamax::*;
     use gameai::strategies::mcts;
     use gameai::strategies::mcts_parallel;
     use runner::AIPlayer;
     let mut human = runner::HumanPlayer::new("Justin");
     let mut pc1 = AIPlayer::<ConnectFour, mcts::MCTS<ConnectFour>>::new(
-        "IRobot",
+        "MCTS_AI",
         mcts::MCTSParams {
             timeout: timeout,
             c: (2.0 as f64).sqrt(),
         },
     );
     let mut pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
-        "IRobot2",
+        "PAR_MCTS_AI",
         mcts_parallel::MCTSParams {
             workers: workers,
             worker_batch_size: worker_batch_size,
             merger_batch_size: merger_batch_size,
+            min_flush_interval: min_flush_interval,
+            merger_queue_bound: merger_queue_bound,
             timeout: timeout,
             c: (2.0 as f64).sqrt(),
         },

@@ -5,7 +5,7 @@ use rand;
 use std::fmt;
 use std::sync::*;
 use std::thread;
-use std::time::Duration;
+use std::time::{Instant, Duration};
 
 #[derive(Debug, Clone)]
 struct Stats {
@@ -23,7 +23,9 @@ pub struct MCTSParams {
     pub c: f64,
     pub workers: u64,
     pub worker_batch_size: u64,
+    pub merger_queue_bound: usize,
     pub merger_batch_size: u64,
+    pub min_flush_interval: u64,
 }
 
 // struct State<G: Hash + PartialEq + Eq> {
@@ -38,7 +40,8 @@ enum WorkerMessage<G: Send> {
 
 struct MCTSWorker<G: Sync + Hash + Eq + RandGame + 'static> {
     input: mpsc::Receiver<WorkerMessage<G>>,
-    merger: mpsc::Sender<MergerMessage<G>>,
+    last_flush: Instant,
+    merger: mpsc::SyncSender<MergerMessage<G>>,
     params: MCTSParams,
     updates: HashMap<G, Stats>,
     stats_cache: HashMap<G, Stats>,
@@ -51,7 +54,8 @@ enum MergerMessage<G> {
 }
 
 struct MCTSMerger<G: Send> {
-    pub input: mpsc::Receiver<MergerMessage<G>>,
+    input: mpsc::Receiver<MergerMessage<G>>,
+    priority_input: mpsc::Receiver<MergerMessage<G>>,
     worker_outputs: Vec<mpsc::Sender<WorkerMessage<G>>>,
     params: MCTSParams,
     stats: HashMap<G, Stats>,
@@ -62,10 +66,12 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
         params: MCTSParams,
         outputs: Vec<mpsc::Sender<WorkerMessage<G>>>,
         input: mpsc::Receiver<MergerMessage<G>>,
+        priority_input: mpsc::Receiver<MergerMessage<G>>,
     ) -> Self {
         let new = MCTSMerger {
             params: params,
             input: input,
+            priority_input: priority_input,
             stats: HashMap::new(),
             worker_outputs: outputs,
         };
@@ -74,9 +80,14 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
 
     fn start(mut self) {
         thread::spawn(move || loop {
-            for _ in 0..self.params.merger_batch_size {
+            for i in 0..self.params.merger_batch_size {
+                if i % 100 == 0 {
+                    if let Ok(msg) = self.priority_input.try_recv() {
+                        self.handle(msg);
+                    }
+                }
                 let msg = self.input.recv().expect("Recv failed.");
-                self.handle_message(msg);
+                self.handle(msg);
             }
 
             for tx in &self.worker_outputs {
@@ -86,7 +97,7 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
         });
     }
 
-    fn handle_message(&mut self, msg: MergerMessage<G>) {
+    fn handle(&mut self, msg: MergerMessage<G>) {
         use self::MergerMessage::*;
         match msg {
             GetStats(tx) => tx.send(self.stats.clone()).expect("GetStats failed."),
@@ -209,7 +220,7 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
         }
     }
 
-    fn handle_message(&mut self, msg: WorkerMessage<G>) {
+    fn handle(&mut self, msg: WorkerMessage<G>) {
         use self::WorkerMessage::*;
         match msg {
             UpdateStats(stats) => {
@@ -220,13 +231,21 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
         }
     }
 
-    fn flush_updates(&mut self) {
+    fn maybe_flush_updates(&mut self) {
         use std::mem;
-        self.merger
-            .send(MergerMessage::Merge(
-                mem::replace(&mut self.updates, HashMap::new()),
-            ))
-            .expect("Couldn't flush updates.");
+        let now = Instant::now();
+        if now.duration_since(self.last_flush) >
+            Duration::from_millis(self.params.min_flush_interval)
+        {
+            self.merger
+                .send(MergerMessage::Merge(
+                    mem::replace(&mut self.updates, HashMap::new()),
+                ))
+                .expect("Couldn't flush updates.");
+            self.last_flush = now;
+        } else {
+            println!("Not flushing too soon.");
+        }
     }
 
     fn start(mut self) {
@@ -236,7 +255,7 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
             loop {
                 for _ in 0..self.params.worker_batch_size {
                     if let Ok(msg) = self.input.try_recv() {
-                        self.handle_message(msg);
+                        self.handle(msg);
                     }
 
                     let game = {
@@ -248,7 +267,7 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
                     self.simulate(&mut rng, &game);
                 }
 
-                self.flush_updates();
+                self.maybe_flush_updates();
             }
         });
     }
@@ -314,11 +333,12 @@ where
 
         let mut workers = Vec::new();
 
-        let (merger_tx, merger_rx) = mpsc::channel();
+        let (merger_tx, merger_rx) = mpsc::sync_channel(params.merger_queue_bound);
         for _ in 0..params.workers {
             let (tx, rx) = mpsc::channel();
             let worker = MCTSWorker {
                 input: rx,
+                last_flush: Instant::now(),
                 merger: merger_tx.clone(),
                 cur: None,
                 stats_cache: HashMap::new(),
@@ -329,12 +349,18 @@ where
             worker.start();
         }
 
-        let merger = MCTSMerger::new(params.clone(), workers.clone(), merger_rx);
+        let (priority_merger_tx, priority_merger_rx) = mpsc::channel();
+        let merger = MCTSMerger::new(
+            params.clone(),
+            workers.clone(),
+            merger_rx,
+            priority_merger_rx,
+        );
         merger.start();
         let new = MCTS {
             params: params,
             workers: workers,
-            merger: merger_tx,
+            merger: priority_merger_tx,
         };
 
         new
