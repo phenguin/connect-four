@@ -94,6 +94,10 @@ pub trait Game: Clone + Send {
     fn has_won(&self, agent: &Self::Agent) -> bool;
     fn apply(&mut self, Self::Move);
 
+    fn reachable(&self, _: &Self) -> bool {
+        true
+    }
+
     fn try_move_mut(&mut self, m: Self::Move) -> bool {
         self.verify_move_mut(m).map(|m| m.apply()).is_some()
     }

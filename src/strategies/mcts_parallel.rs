@@ -51,6 +51,7 @@ struct MCTSWorker<G: Sync + Hash + Eq + RandGame + 'static> {
 
 enum MergerMessage<G> {
     GetStats(mpsc::Sender<HashMap<G, Stats>>),
+    Prune(G),
     Merge(HashMap<G, Stats>),
 }
 
@@ -62,7 +63,7 @@ struct MCTSMerger<G: Send> {
     stats: HashMap<G, Stats>,
 }
 
-impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
+impl<G: 'static + Send + Clone + Game + Eq + Hash> MCTSMerger<G> {
     fn new(
         params: MCTSParams,
         outputs: Vec<mpsc::Sender<WorkerMessage<G>>>,
@@ -82,7 +83,7 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
     fn start(mut self) {
         thread::spawn(move || loop {
             for i in 0..self.params.merger_batch_size {
-                if i % 100 == 0 {
+                if i % 50 == 0 {
                     if let Ok(msg) = self.priority_input.try_recv() {
                         self.handle(msg);
                     }
@@ -92,26 +93,52 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
             }
 
             for tx in &self.worker_outputs {
-                println!("updatestats with - size: {}, bytes: {}KB", self.stats.len(),
-                         (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
+                println!(
+                    "updatestats with - size: {}, bytes: {}KB",
+                    self.stats.len(),
+                    (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000
+                );
                 tx.send(WorkerMessage::UpdateStats(self.stats.clone()))
                     .expect("UpdateStats failed.");
             }
         });
     }
 
+    fn prune(&mut self, g: &G) {
+        // println!(
+        //     "PRUNING BEFORE: - size: {}, bytes: {}KB",
+        //     self.stats.len(),
+        //     (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000
+        // );
+        self.stats.retain(|k, v| g.reachable(k) && v.visits > 5);
+        // println!(
+        //     "PRUNING AFTER: - size: {}, bytes: {}KB",
+        //     self.stats.len(),
+        //     (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000
+        // );
+    }
+
     fn handle(&mut self, msg: MergerMessage<G>) {
         use self::MergerMessage::*;
         match msg {
             GetStats(tx) => {
-                println!("STATS with - size: {}, bytes: {}KB", self.stats.len(),
-                         (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
                 tx.send(self.stats.clone()).expect("GetStats failed.");
-                
-            },
+                // println!(
+                //     "GetStats with - size: {}, bytes: {}KB",
+                //     self.stats.len(),
+                //     (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000
+                // );
+
+            }
+            Prune(cur) => {
+                self.prune(&cur);
+            }
             Merge(updates) => {
-                println!("merging with - size: {}, bytes: {}KB", updates.len(),
-                         (updates.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
+                // println!(
+                //     "merging with - size: {}, bytes: {}KB",
+                //     updates.len(),
+                //     (updates.len() * (size_of::<G>() + size_of::<Stats>())) / 1000
+                // );
                 for (k, v) in updates.into_iter() {
                     let mut stats = self.stats.entry(k).or_insert(Stats {
                         visits: 0,
@@ -125,6 +152,7 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
                 }
             }
         }
+
     }
 }
 
@@ -255,7 +283,7 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
                 ))
                 .expect("Couldn't flush updates.");
             self.last_flush = now;
-        } 
+        }
     }
 
     fn start(mut self) {
@@ -300,6 +328,10 @@ where
             tx.send(WorkerMessage::UpdateCur(Some(game.clone())))
                 .expect("UpdateCur failed.");
         }
+        self.merger
+            .send(MergerMessage::Prune(game.clone()))
+            .expect("Prune failed.");
+
         thread::sleep(Duration::from_millis(self.params.timeout));
         let (tx, rx) = mpsc::channel();
         self.merger.send(MergerMessage::GetStats(tx)).expect(

@@ -91,6 +91,17 @@ impl C4Board {
         self.board[i][j]
     }
 
+    fn num_pieces(&self) -> usize {
+        self.board
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|s| match s {
+                &Empty => 0,
+                _ => 1,
+            })
+            .sum()
+    }
+
     fn set(&mut self, i: usize, j: usize, c: Color) {
         (*self).board[i][j] = Slot::Full(c);
     }
@@ -161,6 +172,10 @@ impl RandGame for ConnectFour {
 impl Game for ConnectFour {
     type Move = (usize, Self::Agent);
     type Agent = Color;
+
+    fn reachable(&self, g: &Self) -> bool {
+        g.state.num_pieces() > self.state.num_pieces()
+    }
 
     fn agent_id(&self, &a: &Self::Agent) -> u32 {
         match a {
