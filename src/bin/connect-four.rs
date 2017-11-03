@@ -28,6 +28,7 @@ fn do_main() {
                 .short("w")
                 .value_name("UINT")
                 .long("monte_carlo_workers")
+                .default_value("1")
                 .help("How many parallel workers for MCTS.")
                 .takes_value(true),
         )
@@ -36,6 +37,7 @@ fn do_main() {
                 .short("wb")
                 .value_name("UINT")
                 .long("worker_batch_size")
+                .default_value("5000")
                 .help("Batch size for workers.")
                 .takes_value(true),
         )
@@ -44,6 +46,7 @@ fn do_main() {
                 .short("wm")
                 .value_name("UINT")
                 .long("merger_batch_size")
+                .default_value("1000")
                 .help("Batch size for mergers.")
                 .takes_value(true),
         )
@@ -52,6 +55,7 @@ fn do_main() {
                 .short("i")
                 .value_name("UINT")
                 .long("min_flush_interval")
+                .default_value("1000")
                 .help("Minimum time in between worker stats flushes.")
                 .takes_value(true),
         )
@@ -61,7 +65,7 @@ fn do_main() {
                 .value_name("UINT")
                 .long("merger_queue_bound")
                 .help("Max length of the merger input channel of updates.")
-                .default_value("10000")
+                .default_value("100")
                 .takes_value(true),
         )
         .get_matches();

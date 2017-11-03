@@ -1,5 +1,6 @@
 use super::*;
 use game::*;
+use std::mem::size_of;
 use rand::XorShiftRng;
 use rand;
 use std::fmt;
@@ -91,6 +92,8 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
             }
 
             for tx in &self.worker_outputs {
+                println!("updatestats with - size: {}, bytes: {}KB", self.stats.len(),
+                         (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
                 tx.send(WorkerMessage::UpdateStats(self.stats.clone()))
                     .expect("UpdateStats failed.");
             }
@@ -100,8 +103,15 @@ impl<G: 'static + Send + Clone + Eq + Hash> MCTSMerger<G> {
     fn handle(&mut self, msg: MergerMessage<G>) {
         use self::MergerMessage::*;
         match msg {
-            GetStats(tx) => tx.send(self.stats.clone()).expect("GetStats failed."),
+            GetStats(tx) => {
+                println!("STATS with - size: {}, bytes: {}KB", self.stats.len(),
+                         (self.stats.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
+                tx.send(self.stats.clone()).expect("GetStats failed.");
+                
+            },
             Merge(updates) => {
+                println!("merging with - size: {}, bytes: {}KB", updates.len(),
+                         (updates.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
                 for (k, v) in updates.into_iter() {
                     let mut stats = self.stats.entry(k).or_insert(Stats {
                         visits: 0,
@@ -237,15 +247,15 @@ impl<G: RandGame + Eq + Hash + Sync + 'static> MCTSWorker<G> {
         if now.duration_since(self.last_flush) >
             Duration::from_millis(self.params.min_flush_interval)
         {
+            // println!("flushing with - size: {}, bytes: {}KB", self.updates.len(),
+            //          (self.updates.len() * (size_of::<G>() + size_of::<Stats>())) / 1000);
             self.merger
                 .send(MergerMessage::Merge(
                     mem::replace(&mut self.updates, HashMap::new()),
                 ))
                 .expect("Couldn't flush updates.");
             self.last_flush = now;
-        } else {
-            println!("Not flushing too soon.");
-        }
+        } 
     }
 
     fn start(mut self) {
