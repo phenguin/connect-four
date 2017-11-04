@@ -6,10 +6,10 @@ authors = ["Justin Cullen <jcullen@alum.mit.edu>"]
 license = "MIT"
 
 [dependencies]
-clap = "*"
-rand = "*"
-rayon = "*"
-cpuprofiler = "*"
+clap = ">=2.0.0"
+cpuprofiler = ">=0.0.3"
+rand = ">=0.3.0"
+rayon = ">=0.8.0"
 
 [profile.release]
 debug = true

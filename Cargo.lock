@@ -1,6 +1,6 @@
 [root]
 name = "gameai"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "clap 2.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cpuprofiler 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
