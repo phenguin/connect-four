@@ -24,9 +24,10 @@ pub struct Negamax<G: Hash> {
 
 
 impl<G> Negamax<G>
-    where G: RandGame + Send + fmt::Display + Hash + Eq,
-          G::Agent: Send,
-          G::Move: Send + Ord
+where
+    G: RandGame + Send + fmt::Display + Hash + Eq,
+    G::Agent: Send,
+    G::Move: Send + Ord,
 {
     fn heuristic(&mut self, game: G) -> usize {
         if let Some(v) = self.state.cache.get(&game) {
@@ -53,7 +54,8 @@ impl<G> Negamax<G>
             let weight = game.player_weight(&game.to_act());
             return (self.heuristic(game) as Score * weight, None);
         }
-        nexts.into_iter()
+        nexts
+            .into_iter()
             .map(|mv| {
                 let m = *mv.valid_move();
                 let new_game = mv.apply();
@@ -66,9 +68,10 @@ impl<G> Negamax<G>
 }
 
 impl<G> Strategy<G> for Negamax<G>
-    where G: RandGame + Send + fmt::Display + Hash + Eq,
-          G::Agent: Send,
-          G::Move: Send + Ord
+where
+    G: RandGame + Send + fmt::Display + Hash + Eq,
+    G::Agent: Send,
+    G::Move: Send + Ord,
 {
     type Params = NegamaxParams;
     fn decide(&mut self, game: &G) -> G::Move {

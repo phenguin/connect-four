@@ -3,13 +3,15 @@
 extern crate gameai;
 extern crate clap;
 
+use gameai::game::tictactoe::*;
+
 use clap::{Arg, App, value_t};
 
 use gameai::game;
 use gameai::runner;
 
 fn do_main() {
-    let matches = App::new("Connect Four")
+    let matches = App::new("Tic Tac Toe")
         .version("0.1.0")
         .about("Simple project to play with while learning rust")
         .arg(
@@ -80,19 +82,19 @@ fn do_main() {
     let merger_queue_bound = value_t!(matches.value_of("merger_queue_bound"), usize)
         .unwrap_or_else(|e| e.exit());
 
-    use game::connectfour::ConnectFour;
+    use game::tictactoe::TicTacToe;
     use gameai::strategies::mcts;
     use gameai::strategies::mcts_parallel;
     use runner::AIPlayer;
     let mut human = runner::HumanPlayer::new("Justin");
-    let mut pc1 = AIPlayer::<ConnectFour, mcts::MCTS<ConnectFour>>::new(
+    let mut pc1 = AIPlayer::<TicTacToe, mcts::MCTS<TicTacToe>>::new(
         "MCTS_AI",
         mcts::MCTSParams {
             timeout: timeout,
             c: (2.0 as f64).sqrt(),
         },
     );
-    let mut pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
+    let mut pc2 = AIPlayer::<TicTacToe, mcts_parallel::MCTS<TicTacToe>>::new(
         "PAR_MCTS_AI",
         mcts_parallel::MCTSParams {
             workers: workers,
@@ -104,9 +106,8 @@ fn do_main() {
             c: (2.0 as f64).sqrt(),
         },
     );
-    runner::Runner::run(&mut pc1, &mut pc2);
+    runner::Runner::run(&mut human, &mut pc2);
 }
-
 fn main() {
     do_main();
 }

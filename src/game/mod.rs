@@ -1,5 +1,6 @@
 pub mod connectfour;
 pub mod dots;
+pub mod tictactoe;
 
 #[derive(Hash, Clone)]
 pub struct ValidMove<G: Game> {
