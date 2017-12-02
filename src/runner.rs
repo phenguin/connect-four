@@ -10,7 +10,7 @@ where
     G::Agent: Send,
     G::Move: Send + Ord,
 {
-    fn choose_move(&mut self, game: &G, output: mpsc::Sender<G::Move>);
+    fn choose_move(&mut self, game: &G, output: OnceSender<G::Move>);
     fn display_name(&self) -> &str;
     fn player_type(&self) -> &str;
     fn full_name(&self) -> String {
@@ -20,6 +20,20 @@ where
 
 pub struct HumanPlayer {
     name: String,
+}
+
+pub struct OnceSender<T>(mpsc::Sender<T>);
+
+impl<T> OnceSender<T> {
+    pub fn send(self, x: T) -> Result<(), mpsc::SendError<T>> {
+        self.0.send(x)
+    }
+}
+
+impl<T> From<mpsc::Sender<T>> for OnceSender<T> {
+    fn from(x: mpsc::Sender<T>) -> OnceSender<T> {
+        OnceSender(x)
+    }
 }
 
 impl HumanPlayer {
@@ -42,7 +56,7 @@ where
         "Human"
     }
 
-    fn choose_move(&mut self, game: &G, output: mpsc::Sender<G::Move>) {
+    fn choose_move(&mut self, game: &G, output: OnceSender<G::Move>) {
         let agent = game.to_act();
         println!("{}'s move.", agent);
 
@@ -94,7 +108,7 @@ where
         "Computer"
     }
 
-    fn choose_move(&mut self, board: &G, output: mpsc::Sender<G::Move>) {
+    fn choose_move(&mut self, board: &G, output: OnceSender<G::Move>) {
         println!("{} is thinking.....", self.name);
         let m = self.strategy.decide(board);
         println!("CHOSE MOVE: {:?}", m);
@@ -159,11 +173,11 @@ where
         // Hacky: Generalize to multi player games.
         let to_act_id = self.board.agent_id(&self.board.to_act());
         if to_act_id == 0 {
-            (*self).players.0.choose_move(&self.board, self.channel.0.clone());
+            (*self).players.0.choose_move(&self.board, self.channel.0.clone().into());
         }
 
         if to_act_id == 1 {
-            (*self).players.1.choose_move(&self.board, self.channel.0.clone());
+            (*self).players.1.choose_move(&self.board, self.channel.0.clone().into());
         }
 
         let next_move = self.channel.1.recv().expect("Receiving next move failed.");
