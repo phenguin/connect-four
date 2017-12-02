@@ -84,15 +84,15 @@ fn do_main() {
     use gameai::strategies::mcts;
     use gameai::strategies::mcts_parallel;
     use runner::AIPlayer;
-    let mut human = runner::HumanPlayer::new("Justin");
-    let mut pc1 = AIPlayer::<ConnectFour, mcts::MCTS<ConnectFour>>::new(
+    let mut _human = runner::HumanPlayer::new("Justin");
+    let mut _pc1 = AIPlayer::<ConnectFour, mcts::MCTS<ConnectFour>>::new(
         "MCTS_AI",
         mcts::MCTSParams {
             timeout: timeout,
             c: (2.0 as f64).sqrt(),
         },
     );
-    let mut pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
+    let mut _pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
         "PAR_MCTS_AI",
         mcts_parallel::MCTSParams {
             workers: workers,
@@ -104,7 +104,7 @@ fn do_main() {
             c: (2.0 as f64).sqrt(),
         },
     );
-    runner::Runner::run(&mut pc1, &mut pc2);
+    runner::Runner::run(&mut _pc1, &mut _pc2);
 }
 
 fn main() {
