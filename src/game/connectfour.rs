@@ -10,7 +10,8 @@ const HEIGHT: usize = 6;
 const WIDTH: usize = 7;
 const NEEDED: usize = 4;
 
-#[derive(Clone, Copy, PartialOrd, PartialEq, Hash, Debug, Ord, Eq)]
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialOrd, PartialEq, Hash, Debug, Ord, Eq)]
 pub enum Color {
     R,
     B,
@@ -42,7 +43,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Slot {
     Empty,
     Full(Color),
@@ -76,7 +77,7 @@ impl fmt::Display for Slot {
     }
 }
 
-#[derive(Hash, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Hash, Debug, PartialEq, Eq)]
 struct C4Board {
     board: [[Slot; WIDTH]; HEIGHT],
 }
@@ -126,7 +127,7 @@ impl fmt::Display for C4Board {
     }
 }
 
-#[derive(Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Hash, Clone, Debug, PartialEq, Eq)]
 pub struct ConnectFour {
     state: C4Board,
     to_act: Color,
@@ -196,11 +197,12 @@ impl Game for ConnectFour {
         // TODO : Is this fine?
         let state = &self.state;
         let (col, color) = m;
-        if let Slot::Full(_) = state.board[HEIGHT - 1][col] {
+
+        if col >= WIDTH || color != self.to_act {
             return false;
         }
 
-        if col >= WIDTH || color != self.to_act {
+        if let Slot::Full(_) = state.board[HEIGHT - 1][col] {
             return false;
         }
 

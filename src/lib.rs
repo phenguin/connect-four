@@ -8,6 +8,11 @@ extern crate rayon;
 extern crate clap;
 extern crate cpuprofiler;
 
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate bincode;
+
 pub mod game;
 pub mod strategies;
 pub mod runner;

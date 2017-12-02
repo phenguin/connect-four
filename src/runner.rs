@@ -50,20 +50,25 @@ pub struct NetworkPlayer {
     listener: TcpListener,
 }
 
-use std::mem;
 impl NetworkPlayer {
     pub fn new(name: &str, listener: TcpListener) -> Self {
-        unsafe {
-            let mut res: NetworkPlayer = mem::uninitialized();
-            res.name = name.to_owned();
-            res.listener = listener;
-            res.wait_for_connection();
-            res
+        println!("Waiting for player to connect..");
+        let (conn, addr) = listener.accept().expect("Accept failed.");
+        println!("connection established");
+        NetworkPlayer {
+            name: name.to_owned(),
+            listener,
+            conn,
+            addr,
         }
+
     }
 
+    #[allow(unused)]
     fn wait_for_connection(&mut self) {
+        println!("waiting for reconnection..");
         let (conn, addr) = self.listener.accept().expect("Accept failed.");
+        println!("connection established");
         self.conn = conn;
         self.addr = addr;
     }
@@ -71,11 +76,11 @@ impl NetworkPlayer {
 
 use std::io::Write;
 use std::io::Read;
-impl<G> Player<G> for NetworkPlayer
+impl<'a, G> Player<G> for NetworkPlayer
 where
-    G: ParseGame + Send,
+    G: ParseGame + Send + ::serde::Serialize,
     G::Agent: Send + fmt::Display,
-    G::Move: Send + Ord + fmt::Debug,
+    G::Move: Send + Ord + fmt::Debug + ::serde::de::DeserializeOwned,
 {
     fn display_name(&self) -> &str {
         self.name.as_str()
@@ -86,15 +91,34 @@ where
     }
 
     fn choose_move(&mut self, game: &G, output: OnceSender<G::Move>) {
-        self.conn.write(b"request");
-        self.conn.flush();
-        println!("Waiting for networked players response..");
-        let mut buf = [0; 512];
-        self.conn.read(&mut buf).unwrap();
-        let response_str = String::from_utf8_lossy(&buf[..]);
-        match game.parse_move(response_str.into_owned().as_str()) {
-            Some(next_move) => output.send(next_move).unwrap(),
-            None => panic!("Bad"),
+        use bincode::{deserialize, serialize, Infinite};
+        loop {
+            if let Err(_) = self.conn.write(&serialize(game, Infinite).unwrap()) {
+                println!("write failed.");
+                self.wait_for_connection();
+                continue;
+            }
+            if let Err(_) = self.conn.flush() {
+                println!("flush failed.");
+                self.wait_for_connection();
+                continue;
+            }
+
+            println!("Waiting for networked players response..");
+            let mut buf = [0; 512];
+            if let Err(_) = self.conn.read(&mut buf) {
+                println!("read failed.");
+                self.wait_for_connection();
+                continue;
+            }
+
+            match deserialize(&buf[..]) {
+                Ok(next_move) => {
+                    output.send(next_move).unwrap();
+                    return;
+                },
+                Err(_) => println!("Invalid move received."),
+            }
         }
     }
 }

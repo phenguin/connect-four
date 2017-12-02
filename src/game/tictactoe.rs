@@ -201,7 +201,7 @@ impl Game for TicTacToe {
             0
         };
         let marker = Square(Some(marker));
-        let get = |i, j| self.state.get(j, i);
+        // let get = |i, j| self.state.get(j, i);
         for i in 0..SIZE {
             for j in 0..SIZE {
                 if (0..REQ).map(|n| value(i, j + n, marker)).sum::<usize>() == REQ {
