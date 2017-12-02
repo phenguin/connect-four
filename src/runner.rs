@@ -1,5 +1,6 @@
 use game::{RandGame, Game, ParseGame};
 use std::fmt;
+use std::sync::mpsc;
 use std::io;
 use rand;
 use strategies::Strategy;
@@ -9,7 +10,7 @@ where
     G::Agent: Send,
     G::Move: Send + Ord,
 {
-    fn choose_move(&mut self, game: &G) -> G::Move;
+    fn choose_move(&mut self, game: &G, output: mpsc::Sender<G::Move>);
     fn display_name(&self) -> &str;
     fn player_type(&self) -> &str;
     fn full_name(&self) -> String {
@@ -41,7 +42,7 @@ where
         "Human"
     }
 
-    fn choose_move(&mut self, game: &G) -> G::Move {
+    fn choose_move(&mut self, game: &G, output: mpsc::Sender<G::Move>) {
         let agent = game.to_act();
         println!("{}'s move.", agent);
 
@@ -65,7 +66,8 @@ where
                 continue;
             }
 
-            return choice;
+            output.send(choice).expect("Sending move choice failed");
+            break;
         }
     }
 }
@@ -92,11 +94,11 @@ where
         "Computer"
     }
 
-    fn choose_move(&mut self, board: &G) -> G::Move {
+    fn choose_move(&mut self, board: &G, output: mpsc::Sender<G::Move>) {
         println!("{} is thinking.....", self.name);
         let m = self.strategy.decide(board);
         println!("CHOSE MOVE: {:?}", m);
-        m
+        output.send(m).expect("Send failed.");
     }
 }
 
@@ -118,6 +120,7 @@ pub type Plr<'a, G> = &'a mut Player<G>;
 pub struct Runner<'a, G: Game + 'a> {
     board: G,
     players: (Plr<'a, G>, Plr<'a, G>),
+    channel: (mpsc::Sender<G::Move>, mpsc::Receiver<G::Move>),
 }
 
 impl<'a, G> Runner<'a, G>
@@ -135,11 +138,11 @@ where
         Runner {
             board: G::new(&agent),
             players: (p1, p2),
+            channel: mpsc::channel(),
         }
     }
 
     fn init(&mut self) {
-        println!("CONNECT FOUR");
         println!("Player 1 is {}", self.players.0.full_name());
         println!("Player 2 is {}", self.players.1.full_name());
         println!("Flipping to see who starts...");
@@ -152,14 +155,23 @@ where
     }
 
     fn step(&mut self) {
-        let cloned_board = self.board.clone();
-        println!("{}", cloned_board);
-        if self.board.agent_id(&cloned_board.to_act()) == 0 {
-            let p1_move = (*self).players.0.choose_move(&cloned_board);
-            self.board.try_move(p1_move);
-        } else {
-            let p2_move = (*self).players.1.choose_move(&cloned_board);
-            self.board.try_move(p2_move);
+        println!("{}", self.board);
+        // Hacky: Generalize to multi player games.
+        let to_act_id = self.board.agent_id(&self.board.to_act());
+        if to_act_id == 0 {
+            (*self).players.0.choose_move(&self.board, self.channel.0.clone());
+        }
+
+        if to_act_id == 1 {
+            (*self).players.1.choose_move(&self.board, self.channel.0.clone());
+        }
+
+        let next_move = self.channel.1.recv().expect("Receiving next move failed.");
+        let success = self.board.try_move(next_move);
+
+        if !success {
+            println!("Received invalid move");
+            return;
         }
     }
 
