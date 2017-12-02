@@ -92,6 +92,9 @@ fn do_main() {
             c: (2.0 as f64).sqrt(),
         },
     );
+    use runner::NetworkPlayer;
+    use std::net::TcpListener;
+    let mut _net = NetworkPlayer::new("Network guy", TcpListener::bind("127.0.0.1::8080").unwrap());
     let mut _pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
         "PAR_MCTS_AI",
         mcts_parallel::MCTSParams {

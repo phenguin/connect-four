@@ -42,6 +42,63 @@ impl HumanPlayer {
     }
 }
 
+use std::net::{TcpListener, TcpStream, SocketAddr};
+pub struct NetworkPlayer {
+    name: String,
+    conn: TcpStream,
+    addr: SocketAddr,
+    listener: TcpListener,
+}
+
+use std::mem;
+impl NetworkPlayer {
+    pub fn new(name: &str, listener: TcpListener) -> Self {
+        unsafe {
+            let mut res: NetworkPlayer = mem::uninitialized();
+            res.name = name.to_owned();
+            res.listener = listener;
+            res.wait_for_connection();
+            res
+        }
+    }
+
+    fn wait_for_connection(&mut self) {
+        let (conn, addr) = self.listener.accept().expect("Accept failed.");
+        self.conn = conn;
+        self.addr = addr;
+    }
+}
+
+use std::io::Write;
+use std::io::Read;
+impl<G> Player<G> for NetworkPlayer
+where
+    G: ParseGame + Send,
+    G::Agent: Send + fmt::Display,
+    G::Move: Send + Ord + fmt::Debug,
+{
+    fn display_name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    fn player_type(&self) -> &str {
+        "Network"
+    }
+
+    fn choose_move(&mut self, game: &G, output: OnceSender<G::Move>) {
+        self.conn.write(b"request");
+        self.conn.flush();
+        println!("Waiting for networked players response..");
+        let mut buf = [0; 512];
+        self.conn.read(&mut buf).unwrap();
+        let response_str = String::from_utf8_lossy(&buf[..]);
+        match game.parse_move(response_str.into_owned().as_str()) {
+            Some(next_move) => output.send(next_move).unwrap(),
+            None => panic!("Bad"),
+        }
+    }
+}
+
 impl<G> Player<G> for HumanPlayer
 where
     G: ParseGame + Send,
@@ -173,11 +230,17 @@ where
         // Hacky: Generalize to multi player games.
         let to_act_id = self.board.agent_id(&self.board.to_act());
         if to_act_id == 0 {
-            (*self).players.0.choose_move(&self.board, self.channel.0.clone().into());
+            (*self).players.0.choose_move(
+                &self.board,
+                self.channel.0.clone().into(),
+            );
         }
 
         if to_act_id == 1 {
-            (*self).players.1.choose_move(&self.board, self.channel.0.clone().into());
+            (*self).players.1.choose_move(
+                &self.board,
+                self.channel.0.clone().into(),
+            );
         }
 
         let next_move = self.channel.1.recv().expect("Receiving next move failed.");
