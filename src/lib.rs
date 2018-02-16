@@ -41,6 +41,7 @@ mod tests {
     fn it_works() {
         assert_eq!(4, 2 + 2);
     }
+    
 
     #[bench]
     fn bench_negamax(b: &mut Bencher) {

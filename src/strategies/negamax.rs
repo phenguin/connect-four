@@ -3,7 +3,6 @@ use game::{RandGame, Score};
 use std::fmt;
 use rand::XorShiftRng;
 use rand;
-// use rayon::prelude::*;
 
 use std::hash::Hash;
 use std::collections::HashMap;

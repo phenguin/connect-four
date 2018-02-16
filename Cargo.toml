@@ -9,7 +9,8 @@ license = "MIT"
 clap = ">=2.0.0"
 cpuprofiler = ">=0.0.3"
 rand = ">=0.3.0"
-rayon = ">=0.8.0"
+rayon = ">=1.0.0"
+rayon-futures = ">=0.1.0"
 serde_derive = "1.0"
 serde = "1.0"
 bincode = ">=0.9.0"
@@ -17,3 +18,4 @@ crossbeam = "0.3.0"
 
 [profile.release]
 debug = true
+

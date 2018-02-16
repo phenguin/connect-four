@@ -10,7 +10,8 @@ use std::io::{Read, Write};
 use gameai::game;
 use std::net::TcpStream;
 use bincode::{deserialize, serialize, Infinite};
-use gameai::game::{ParseGame, Game};
+use gameai::game::ParseGame;
+
 fn do_main(mut conn: TcpStream) {
     loop {
         let mut buf = [0; 512];
