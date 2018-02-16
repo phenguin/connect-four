@@ -12,6 +12,7 @@ extern crate cpuprofiler;
 extern crate serde_derive;
 extern crate serde;
 extern crate bincode;
+extern crate crossbeam;
 
 pub mod game;
 pub mod strategies;
