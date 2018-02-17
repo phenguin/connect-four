@@ -1,4 +1,4 @@
-#![feature(test)]
+#![feature(test, generators, generator_trait, conservative_impl_trait)]
 
 
 use std::fmt;
