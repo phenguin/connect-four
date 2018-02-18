@@ -83,6 +83,7 @@ fn do_main() {
     use game::connectfour::ConnectFour;
     use gameai::strategies::mcts;
     use gameai::strategies::mcts_parallel;
+    use gameai::strategies::mcts_rayon;
     use runner::AIPlayer;
     let mut _human = runner::HumanPlayer::new("Justin");
     let mut _pc1 = AIPlayer::<ConnectFour, mcts::MCTS<ConnectFour>>::new(
@@ -94,10 +95,10 @@ fn do_main() {
     );
     use runner::NetworkPlayer;
     use std::net::TcpListener;
-    let mut _net = NetworkPlayer::new("Network guy", TcpListener::bind("127.0.0.1:8080").unwrap());
-    let mut _pc2 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
-        "PAR_MCTS_AI",
-        mcts_parallel::MCTSParams {
+    // let mut _net = NetworkPlayer::new("Network guy", TcpListener::bind("127.0.0.1:8080").unwrap());
+    let mut _pc2 = AIPlayer::<ConnectFour, mcts_rayon::MCTS<ConnectFour>>::new(
+        "RAYON_MCTS_AI",
+        mcts_rayon::MCTSParams {
             workers: workers,
             worker_batch_size: worker_batch_size,
             merger_batch_size: merger_batch_size,
@@ -108,7 +109,7 @@ fn do_main() {
         },
     );
 
-    runner::Runner::run(&mut _pc2, &mut _net);
+    runner::Runner::run(&mut _pc2, &mut _human);
 }
 
 fn main() {

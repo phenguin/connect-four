@@ -1,9 +1,10 @@
-#![feature(test, generators, generator_trait, conservative_impl_trait)]
+#![feature(test, generators, generator_trait, conservative_impl_trait, proc_macro, nested_impl_trait)]
 
 
 use std::fmt;
 
 extern crate test;
+extern crate futures_timer;
 extern crate evmap;
 extern crate rand;
 extern crate rayon;
@@ -13,11 +14,11 @@ extern crate cpuprofiler;
 #[macro_use]
 extern crate serde_derive;
 
-extern crate futures;
 extern crate serde;
 extern crate bincode;
 extern crate crossbeam;
 extern crate rayon_futures;
+extern crate futures;
 
 pub mod game;
 pub mod strategies;

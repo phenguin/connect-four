@@ -1,6 +1,9 @@
 #![allow(unused)]
 use super::*;
 use std::ops::{Deref, DerefMut};
+use futures::prelude::*;
+use futures::future;
+use futures_timer::Delay;
 use std::hash::Hash;
 use game::*;
 use std::mem::size_of;
@@ -12,9 +15,31 @@ use std::thread;
 use std::time::{Instant, Duration};
 use rayon;
 use rayon::prelude::*;
-use rayon_futures;
+use rayon_futures::{ScopeFutureExt, RayonFuture};
 use std::collections::LinkedList;
+use std::ops::Add;
 use evmap;
+
+impl Add for Stats {
+    type Output = Stats;
+    fn add(self, rhs: Self) -> Self::Output {
+        Stats {
+            wins: self.wins + rhs.wins,
+            losses: self.losses + rhs.losses,
+            visits: self.visits + rhs.visits,
+        }
+    }
+}
+
+use std::iter;
+impl<'a> iter::Sum<&'a Stats> for Stats {
+    fn sum<I>(iter: I) -> Self
+    where
+        I: Iterator<Item = &'a Self>,
+    {
+        iter.fold(Stats::ZERO, |a, b| a + *b)
+    }
+}
 
 /// Perform a generic `par_extend` by collecting to a `LinkedList<Vec<_>>` in
 /// parallel, then extending the collection sequentially.
@@ -67,11 +92,16 @@ impl Stats {
         losses: 0,
         visits: 1,
     };
+    const ZERO: Stats = Stats {
+        wins: 0,
+        losses: 0,
+        visits: 0,
+    };
 
     fn delta(maybe_won: Option<bool>) -> Self {
         match maybe_won {
             None => Self::TIE,
-            Some(won) => if won {Self::WIN} else {Self::LOSS}
+            Some(won) => if won { Self::WIN } else { Self::LOSS },
         }
     }
 }
@@ -85,6 +115,7 @@ impl evmap::ShallowCopy for Stats {
 #[derive(Clone)]
 struct MCTSState<G: Send + Eq + Hash + Clone> {
     stats: evmap::ReadHandle<G, Stats>,
+    current: Arc<Mutex<Option<G>>>,
 }
 
 
@@ -92,8 +123,13 @@ impl<G: Game + Send + Eq + Hash + Clone> MCTSState<G> {
     fn stats(&self, game: &G) -> Option<Stats> {
         self.stats.get_and(game, |vs| vs[0])
     }
-        // fn simulate<R: rand::Rng>(&mut self, rng: &mut R, game: &G, winner_output: &mut Option<G::Agent>) -> impl Generator<Yield = (&G, Stats), Return = ()> {
-    fn simulate<R: rand::Rng>(&self, params: &MCTSParams, rng: &mut R, game: &G, stats_output: &mut Vec<(G,Stats)>) -> Option<G::Agent> {
+    fn simulate<R: rand::Rng>(
+        &self,
+        params: &MCTSParams,
+        rng: &mut R,
+        game: &G,
+        stats_output: &mut Vec<(G, Stats)>,
+    ) -> Option<G::Agent> {
         let acting = game.to_act();
         let nexts = game.possible_moves();
         let winner = if nexts.is_empty() {
@@ -140,7 +176,8 @@ impl<G: Game + Send + Eq + Hash + Clone> MCTSState<G> {
             let x = games.into_iter().max_by(|t1, t2| {
                 let t1 = (&t1.0, t1.1);
                 let t2 = (&t2.0, t2.1);
-                params.key(t1, parent_visits as f64, acting)
+                params
+                    .key(t1, parent_visits as f64, acting)
                     .partial_cmp(&params.key(t2, parent_visits as f64, acting))
                     .expect("2")
             });
@@ -149,11 +186,21 @@ impl<G: Game + Send + Eq + Hash + Clone> MCTSState<G> {
             random_choice
         }
     }
-
 }
 
 struct StatsWriter<G: Send + Eq + Hash + Clone> {
     stats: evmap::WriteHandle<G, Stats>,
+}
+
+impl<G: Send + Eq + Hash + Clone> StatsWriter<G> {
+    fn compact(&mut self) {
+        let read_handle: evmap::ReadHandle<G, Stats> = self.clone();
+        read_handle.for_each(|k, vs: &[Stats]| if vs.len() > 1 {
+            self.update(k.clone(), vs.iter().sum());
+        });
+        self.refresh();
+        println!("Compaction complete.");
+    }
 }
 
 impl<G: Send + Eq + Hash + Clone> ParallelExtend<(G, Stats)> for StatsWriter<G> {
@@ -202,11 +249,11 @@ impl MCTSParams {
     }
 }
 
-#[derive(Clone)]
-pub struct MCTS<G: Clone + Sync + Hash + Eq + RandGame + 'static> {
+pub struct MCTS<G: Clone + Sync + Hash + Eq + RandGame> {
     params: MCTSParams,
     state: MCTSState<G>,
-    current: Option<Arc<Mutex<G>>>,
+    notify: Condvar,
+    stats_writer: StatsWriter<G>,
 }
 
 struct WrapGen<T>(T);
@@ -220,21 +267,65 @@ impl<G: Generator<Return = ()>> Iterator for WrapGen<G> {
     }
 }
 
-use std::ops::{Generator,GeneratorState};
+use std::ops::{Generator, GeneratorState};
 impl<G> MCTS<G>
-    where
+where
     G: RandGame + fmt::Display + Hash + Eq + Sync + Send,
 {
 }
 
 impl<G: Sync> Strategy<G> for MCTS<G>
-    where
-    G: RandGame + fmt::Display + Hash + Eq + Clone,
+where
+    G: RandGame
+        + fmt::Display
+        + Hash
+        + Eq
+        + Clone
+        + fmt::Debug
+        + 'static,
 {
     type Params = MCTSParams;
 
     fn decide(&mut self, game: &G) -> G::Move {
-        thread::sleep(Duration::from_millis(self.params.timeout));
+        println!("Deciding for {}..", game);
+        {
+            println!("Need lock");
+            *(self.state.current.lock().expect("Lock poisoned")) = Some(game.clone());
+            println!("Got lock lock");
+        }
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .breadth_first()
+            .build()
+            .unwrap();
+        pool.scope(|s| {
+
+            let timeout_duration = Duration::from_millis(self.params.timeout);
+            let timeout_time = Instant::now() + timeout_duration;
+
+            let timeout = Delay::new_at(timeout_time);
+
+            let work_loop_future = future::loop_fn((), |_| {
+                let now = Instant::now();
+
+                let work_future =
+                    s.spawn_future(future::ok::<_, ()>(self.schedule_work(&pool, 5000)));
+                let timeout = Delay::new_at(timeout_time);
+                work_future.select2(timeout).map(|res| {
+                    match res {
+                        future::Either::A(_) => future::Loop::Continue(()),
+                        future::Either::B(_) => future::Loop::Break(()),
+                    }
+                })});
+
+            work_loop_future.wait();
+        });
+
+        // for _ in (0..10) {
+        //     self.schedule_work(&pool, 100000);
+        //     self.stats_writer.compact();
+        // }
+
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
             (vm, m.apply())
@@ -273,33 +364,59 @@ impl<G: Sync> Strategy<G> for MCTS<G>
         let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
 
         let (read_handle, mut write_handle) = evmap::new::<G, Stats>();
-        let state = MCTSState { stats: read_handle };
+        let state = MCTSState {
+            stats: read_handle,
+            current: Arc::new(Mutex::new(None)),
+        };
+        let mut stats_writer = StatsWriter { stats: write_handle };
 
         let seed = rand::random::<[u32; 4]>();
         let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
 
-        let mcts = MCTS { params: params, state: state, current: None };
-        let res = mcts.clone();
-        let builder = rayon::ThreadPoolBuilder::new().breadth_first().build_global();
-        let global_pool = rayon::ThreadPool::global();
-        global_pool.install(move || {
-            loop {
-                let state = mcts.state.clone();
-                if let Some(ref game_mutex) = mcts.current {
-                    let current = game_mutex.lock().expect("Lock poisoned.");
-                    rayon::iter::repeatn((current.clone(), state), 1000).flat_map(
-                        |(game, state)| {
-                            let seed = rand::random::<[u32; 4]>();
-                            let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
-                            let mut stats_output = Vec::new();
-                            state.simulate(&params, &mut rng, &game, &mut stats_output);
-                            stats_output.into_par_iter()
-                        }
-                    );
-                }
-            }
-        });
-        res
+        let mcts = MCTS {
+            params: params,
+            state: state,
+            notify: Condvar::new(),
+            stats_writer: stats_writer,
+        };
 
+        mcts
+    }
+}
+
+
+impl<G> MCTS<G>
+where
+    G: Clone + Sync + Hash + Eq + RandGame + fmt::Debug + 'static,
+{
+    fn schedule_work(&mut self, pool: &rayon::ThreadPool, i: usize) {
+        println!("Built thread pool.");
+        let state = self.state.clone();
+        let params = self.params.clone();
+        pool.install(|| self.schedule(&pool, state, &params, i));
+        self.stats_writer.compact();
+        println!("Completed {} simulations.", i);
+    }
+
+    fn schedule(
+        &mut self,
+        pool: &rayon::ThreadPool,
+        state: MCTSState<G>,
+        params: &MCTSParams,
+        i: usize,
+    ) {
+        let current = state.current.lock().expect("Lock poisoned").clone();
+        (&mut self.stats_writer).par_extend(
+            rayon::iter::repeatn(current.map(|g| (g, state.clone())), i)
+                .with_min_len(1000)
+                .filter_map(|x| x)
+                .flat_map(|(game, state)| {
+                    let seed = rand::random::<[u32; 4]>();
+                    let mut rng: XorShiftRng = rand::SeedableRng::from_seed(seed);
+                    let mut stats_output = Vec::new();
+                    state.simulate(&params, &mut rng, &game, &mut stats_output);
+                    stats_output.into_par_iter()
+                }),
+        );
     }
 }
