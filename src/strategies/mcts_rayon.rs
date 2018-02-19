@@ -43,10 +43,10 @@ impl<'a> iter::Sum<&'a Stats> for Stats {
 
 /// Perform a generic `par_extend` by collecting to a `LinkedList<Vec<_>>` in
 /// parallel, then extending the collection sequentially.
-fn extend<C, I>(collection: &mut C, par_iter: I)
+fn extend<G, I>(mut collection: &mut StatsWriter<G>, par_iter: I)
 where
-    I: IntoParallelIterator,
-    C: Extend<I::Item>,
+    I: IntoParallelIterator<Item = (G, Stats)>,
+    G: Send + Eq + Hash + Clone
 {
     let list = par_iter
         .into_par_iter()
@@ -65,6 +65,7 @@ where
         });
 
     for vec in list {
+        // println!("vec size: {}", vec.len());
         collection.extend(vec);
     }
 }
@@ -205,10 +206,28 @@ impl<G: Send + Eq + Hash + Clone> StatsWriter<G> {
 
 impl<G: Send + Eq + Hash + Clone> ParallelExtend<(G, Stats)> for StatsWriter<G> {
     fn par_extend<I: IntoParallelIterator<Item = (G, Stats)>>(&mut self, par_iter: I) {
-        extend(&mut self.stats, par_iter);
+        extend(self, par_iter);
     }
 }
 
+impl<G: Send + Eq + Hash + Clone> iter::Extend<(G, Stats)> for StatsWriter<G> {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = (G, Stats)>,
+    {
+        use std::collections::HashMap;
+        let mut local_map: HashMap<G, Stats> = HashMap::new();
+        iter.into_iter().for_each(|(g, s)| {
+            let stat = local_map.entry(g.clone())
+                .or_insert_with(|| self.stats.get_and(&g, |vs| vs[0]).unwrap_or(Stats::ZERO));
+            *stat = *stat + s;
+            self.stats.update(g, *stat);
+        });
+        // println!("Refreshing.");
+        self.stats.refresh();
+        // println!("Refreshed.");
+    }
+}
 
 impl<G: Send + Eq + Hash + Clone> Deref for StatsWriter<G> {
     type Target = evmap::WriteHandle<G, Stats>;
@@ -300,18 +319,22 @@ where
             .unwrap();
 
 
-        let duration= Duration::from_millis(self.params.timeout);
+        let duration = Duration::from_millis(self.params.timeout);
         let start_time = Instant::now();
 
-        let mut elapsed = start_time.elapsed();
-        while elapsed < duration {
-            println!("{:?} out of {:?}", elapsed, duration);
-            self.schedule_work(&pool, 5000);
-            pool.install(|| self.stats_writer.compact());
-            elapsed = start_time.elapsed();
+        let sims = 120000;
+        let mut sims_run = 0;
+        let sims_needed = 240000;
+        while sims_run < sims_needed {
+            self.schedule_work(&pool, sims);
+            sims_run += sims;
         }
 
-        println!("{:?} has elapsed.  Stopping..", elapsed);
+        println!(
+            "Finished {:?} sims.  {:?} has elapsed.",  
+            sims_run,
+            start_time.elapsed(),
+        );
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
@@ -377,11 +400,9 @@ where
     G: Clone + Sync + Hash + Eq + RandGame + fmt::Debug + 'static,
 {
     fn schedule_work(&mut self, pool: &rayon::ThreadPool, i: usize) {
-        println!("Built thread pool.");
         let state = self.state.clone();
         let params = self.params.clone();
         pool.install(|| self.schedule(&pool, state, &params, i));
-        self.stats_writer.compact();
         println!("Completed {} simulations.", i);
     }
 
@@ -395,7 +416,7 @@ where
         let current = state.current.lock().expect("Lock poisoned").clone();
         (&mut self.stats_writer).par_extend(
             rayon::iter::repeatn(current.map(|g| (g, state.clone())), i)
-                .with_min_len(1000)
+                .with_min_len(i / 8)
                 .filter_map(|x| x)
                 .flat_map(|(game, state)| {
                     let seed = rand::random::<[u32; 4]>();
@@ -403,7 +424,7 @@ where
                     let mut stats_output = Vec::new();
                     state.simulate(&params, &mut rng, &game, &mut stats_output);
                     stats_output.into_par_iter()
-                }),
+                }).collect::<Vec<_>>().into_par_iter().with_min_len(10000)
         );
     }
 }

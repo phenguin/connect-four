@@ -1,4 +1,5 @@
 #![feature(use_extern_macros)]
+#![allow(unused)]
 
 extern crate gameai;
 extern crate clap;
