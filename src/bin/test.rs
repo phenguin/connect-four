@@ -2,7 +2,6 @@ extern crate gameai;
 extern crate rayon;
 
 use rayon::prelude::*;
-use gameai::strategies::mcts_rayon::MCTS;
 
 fn main() {
     let input: Vec<_> = (0..100000).collect();
