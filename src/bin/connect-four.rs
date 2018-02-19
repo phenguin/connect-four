@@ -109,6 +109,18 @@ fn do_main() {
         },
     );
 
+    let mut _pc3 = AIPlayer::<ConnectFour, mcts_parallel::MCTS<ConnectFour>>::new(
+        "RAYON_MCTS_AI",
+        mcts_parallel::MCTSParams {
+            workers: workers,
+            worker_batch_size: worker_batch_size,
+            merger_batch_size: merger_batch_size,
+            min_flush_interval: min_flush_interval,
+            merger_queue_bound: merger_queue_bound,
+            timeout: timeout,
+            c: (2.0 as f64).sqrt(),
+        },
+    );
     runner::Runner::run(&mut _pc2, &mut _human);
 }
 

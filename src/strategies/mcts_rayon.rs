@@ -298,33 +298,20 @@ where
             .breadth_first()
             .build()
             .unwrap();
-        pool.scope(|s| {
 
-            let timeout_duration = Duration::from_millis(self.params.timeout);
-            let timeout_time = Instant::now() + timeout_duration;
 
-            let timeout = Delay::new_at(timeout_time);
+        let duration= Duration::from_millis(self.params.timeout);
+        let start_time = Instant::now();
 
-            let work_loop_future = future::loop_fn((), |_| {
-                let now = Instant::now();
+        let mut elapsed = start_time.elapsed();
+        while elapsed < duration {
+            println!("{:?} out of {:?}", elapsed, duration);
+            self.schedule_work(&pool, 5000);
+            pool.install(|| self.stats_writer.compact());
+            elapsed = start_time.elapsed();
+        }
 
-                let work_future =
-                    s.spawn_future(future::ok::<_, ()>(self.schedule_work(&pool, 5000)));
-                let timeout = Delay::new_at(timeout_time);
-                work_future.select2(timeout).map(|res| {
-                    match res {
-                        future::Either::A(_) => future::Loop::Continue(()),
-                        future::Either::B(_) => future::Loop::Break(()),
-                    }
-                })});
-
-            work_loop_future.wait();
-        });
-
-        // for _ in (0..10) {
-        //     self.schedule_work(&pool, 100000);
-        //     self.stats_writer.compact();
-        // }
+        println!("{:?} has elapsed.  Stopping..", elapsed);
 
         let nexts = game.possible_moves().into_iter().map(|m| {
             let vm = *m.valid_move();
